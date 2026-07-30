@@ -33,6 +33,19 @@ describe('editor Markdown toolbar', () => {
       expect(container.querySelector(`[aria-label="${ZH_CN_MESSAGES['workspace.note_syntax']}"]`)).not.toBeNull()
       expect(container.querySelector(`[aria-label="${ZH_CN_MESSAGES['workspace.more_blocks']}"]`)).not.toBeNull()
 
+      const orderedList = container.querySelector<HTMLButtonElement>(
+        `[aria-label="${ZH_CN_MESSAGES['common.ordered_list']}"]`,
+      )!
+      await act(async () => orderedList.click())
+      expect(view.state.doc.toString()).toBe('1. Note')
+      expect(view.state.selection.main.from).toBe(3)
+      expect(view.state.selection.main.to).toBe(7)
+
+      await act(async () => orderedList.click())
+      expect(view.state.doc.toString()).toBe('Note')
+      expect(view.state.selection.main.from).toBe(0)
+      expect(view.state.selection.main.to).toBe(4)
+
       await act(async () => {
         container.querySelector<HTMLButtonElement>(`[aria-label="${ZH_CN_MESSAGES['workspace.note_syntax']}"]`)!.click()
       })

@@ -11,6 +11,15 @@ function host(html: string): HTMLDivElement {
   return element
 }
 
+describe('standard Markdown lists', () => {
+  it('renders ordered and unordered list semantics', () => {
+    const root = host(renderMarkdown('1. First\n2. Second\n\n- Alpha\n- Beta\n  - Nested').html)
+
+    expect(root.querySelectorAll('ol > li')).toHaveLength(2)
+    expect(root.querySelectorAll('ul > li')).toHaveLength(3)
+  })
+})
+
 describe('trusted task lists', () => {
   it('keeps generated checkboxes with exact nested source lines', () => {
     const rendered = renderMarkdown('- [ ] parent\n  - [x] child\n  - [ ] sibling')

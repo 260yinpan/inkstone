@@ -49,7 +49,11 @@ export function toggleWrap(open: string, close = open): StateCommand {
         return true;
     };
 }
-export function toggleLinePrefix(prefix: string | ((index: number) => string), pattern: RegExp): StateCommand {
+export function toggleLinePrefix(
+    prefix: string | ((index: number) => string),
+    pattern: RegExp,
+    replacementPattern?: RegExp,
+): StateCommand {
     return ({ state, dispatch }) => {
         const changes: ChangeSpec[] = [];
         const seen = new Set<number>();
@@ -70,6 +74,9 @@ export function toggleLinePrefix(prefix: string | ((index: number) => string), p
                 const line = state.doc.line(n);
                 const indent = lineIndent(line.text);
                 const match = linePrefixMatch(line.text, pattern);
+                const replacement = replacementPattern
+                    ? linePrefixMatch(line.text, replacementPattern)
+                    : null;
                 if (allPrefixed && match) {
                     changes.push({
                         from: line.from + indent.length,
@@ -78,14 +85,26 @@ export function toggleLinePrefix(prefix: string | ((index: number) => string), p
                 }
                 else if (!match) {
                     const value = typeof prefix === 'function' ? prefix(index) : prefix;
-                    changes.push({ from: line.from + indent.length, insert: value });
+                    changes.push({
+                        from: line.from + indent.length,
+                        to: replacement
+                            ? line.from + indent.length + replacement[0].length
+                            : line.from + indent.length,
+                        insert: value,
+                    });
                 }
                 index++;
             }
         }
         if (!changes.length)
             return false;
-        dispatch(state.update({ changes, userEvent: 'input.format' }));
+        const changeSet = state.changes(changes);
+        dispatch(state.update({
+            changes: changeSet,
+            selection: state.selection.map(changeSet, 1),
+            scrollIntoView: true,
+            userEvent: 'input.format',
+        }));
         return true;
     };
 }
@@ -150,9 +169,22 @@ export const toggleWikiLink = toggleWrap('[[', ']]');
 export const toggleNoteEmbed = toggleWrap('![[', ']]');
 export const toggleBlockReference = toggleWrap('((', '))');
 export const toggleQuote = toggleLinePrefix('> ', /^>\s?/);
-export const toggleBulletList = toggleLinePrefix('- ', /^[-*+]\s+/);
-export const toggleTaskList = toggleLinePrefix('- [ ] ', /^[-*+]\s+\[[ xX]\]\s+/);
-export const toggleOrderedList = toggleLinePrefix((i) => `${i + 1}. `, /^\d+[.)]\s+/);
+const ANY_LIST_PREFIX = /^(?:[-*+]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?/;
+export const toggleBulletList = toggleLinePrefix(
+    '- ',
+    /^[-*+][ \t]+(?!\[[ xX]\][ \t]+)/,
+    ANY_LIST_PREFIX,
+);
+export const toggleTaskList = toggleLinePrefix(
+    '- [ ] ',
+    /^(?:[-*+]|\d+[.)])[ \t]+\[[ xX]\][ \t]+/,
+    ANY_LIST_PREFIX,
+);
+export const toggleOrderedList = toggleLinePrefix(
+    (i) => `${i + 1}. `,
+    /^\d+[.)][ \t]+(?!\[[ xX]\][ \t]+)/,
+    ANY_LIST_PREFIX,
+);
 export function setHeading(level: number): StateCommand {
     return ({ state, dispatch }) => {
         const changes: ChangeSpec[] = [];
@@ -179,7 +211,13 @@ export function setHeading(level: number): StateCommand {
         }
         if (!changes.length)
             return false;
-        dispatch(state.update({ changes, userEvent: 'input.format' }));
+        const changeSet = state.changes(changes);
+        dispatch(state.update({
+            changes: changeSet,
+            selection: state.selection.map(changeSet, 1),
+            scrollIntoView: true,
+            userEvent: 'input.format',
+        }));
         return true;
     };
 }
@@ -267,7 +305,7 @@ export const insertFootnote: StateCommand = ({ state, dispatch }) => {
     while (source.includes(`[^${number}]`))
         number++;
     const reference = `[^${number}]`;
-    const separator = source.length === 0 ? '' : source.endsWith('\n\n') ? '' : source.endsWith('\n') ? '\n' : '\n\n';
+    const separator = source.length === 0 ? '\n\n' : source.endsWith('\n\n') ? '' : source.endsWith('\n') ? '\n' : '\n\n';
     const definition = `${separator}[^${number}]: `;
     const position = state.selection.main.to;
     const changes: ChangeSpec[] = [
@@ -289,10 +327,11 @@ export const insertDefinitionList: StateCommand = ({ state, dispatch }) => {
     const selected = state.sliceDoc(range.from, range.to);
     const term = selected || t("editor.term");
     const insert = `${term}\n: ${selected ? '' : t("editor.definition")}`;
-    const cursor = range.from + insert.length;
     dispatch(state.update({
         changes: { from: range.from, to: range.to, insert },
-        selection: EditorSelection.cursor(cursor),
+        selection: selected
+            ? EditorSelection.cursor(range.from + insert.length)
+            : EditorSelection.range(range.from, range.from + term.length),
         scrollIntoView: true,
         userEvent: 'input.insert',
     }));

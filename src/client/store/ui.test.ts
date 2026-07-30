@@ -11,6 +11,24 @@ describe('UI layout defaults', () => {
   })
 })
 
+describe('mobile note opening', () => {
+  it('opens a selected note in preview while keeping manual pane switching available', () => {
+    const previousState = useUi.getState()
+
+    try {
+      useUi.setState({ mobilePane: 'editor', activeNoteId: null })
+      useUi.getState().setActiveNote('note-1')
+
+      expect(useUi.getState().mobilePane).toBe('preview')
+
+      useUi.getState().setMobilePane('editor')
+      expect(useUi.getState().mobilePane).toBe('editor')
+    } finally {
+      useUi.setState(previousState, true)
+    }
+  })
+})
+
 describe('UI appearance transitions', () => {
   afterEach(() => {
     vi.useRealTimers()

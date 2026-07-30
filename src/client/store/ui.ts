@@ -277,7 +277,7 @@ export const useUi = create<UiState>((set, get) => ({
       activeNoteId: id,
       selectedIds: id ? [id] : [],
       recentNoteIds: id ? [id, ...s.recentNoteIds.filter((r) => r !== id)].slice(0, 24) : s.recentNoteIds,
-      mobilePane: id ? 'editor' : s.mobilePane,
+      mobilePane: id ? 'preview' : s.mobilePane,
     })),
 
   setSelected: (ids) => set({ selectedIds: ids }),

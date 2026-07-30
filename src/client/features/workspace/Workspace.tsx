@@ -26,6 +26,9 @@ import { useSession } from '../../store/session';
 import { useActiveNote, useNotes } from '../../store/notes';
 import { useSyncScroll } from './sync-scroll';
 import { t } from "../../lib/i18n";
+const SPLIT_HANDLE_WIDTH = 1;
+const PREVIEW_BORDER_WIDTH = 1;
+const OUTLINE_WIDTH = 168;
 export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
     mobileLayout?: 'edit' | 'preview';
     onMobileBack?: () => void;
@@ -55,15 +58,49 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
     const [headings, setHeadings] = useState<Heading[]>([]);
     const [moreMenuOpen, setMoreMenuOpen] = useState(false);
     const [mobileOutlineOpen, setMobileOutlineOpen] = useState(false);
+    const [containerWidth, setContainerWidth] = useState(0);
     const isMobile = breakpoint === 'mobile';
     const layout = isMobile ? mobileLayout : settings.preview.layout;
     const showEditor = layout === 'edit' || layout === 'split';
     const showPreview = layout === 'preview' || layout === 'split';
+    const outlineVisible = !isMobile && outlineOpen && headings.length > 0;
+    const defaultOutlineWidth = outlineVisible ? OUTLINE_WIDTH : 0;
+    const defaultContentWidth = Math.max(0, containerWidth - SPLIT_HANDLE_WIDTH - PREVIEW_BORDER_WIDTH - defaultOutlineWidth);
+    const defaultEditorWidth = defaultContentWidth / 2;
+    const defaultPreviewWidth = PREVIEW_BORDER_WIDTH + defaultOutlineWidth + defaultEditorWidth;
+    const effectiveSplitRatio = splitRatio ?? (containerWidth > 0 ? defaultEditorWidth / containerWidth : 0.5);
+    const editorWidth = splitRatio === null
+        ? containerWidth > 0
+            ? `${defaultEditorWidth}px`
+            : `calc((100% - ${SPLIT_HANDLE_WIDTH + PREVIEW_BORDER_WIDTH + defaultOutlineWidth}px) / 2)`
+        : `${splitRatio * 100}%`;
+    const previewWidth = splitRatio === null
+        ? containerWidth > 0
+            ? `${defaultPreviewWidth}px`
+            : `calc((100% + ${PREVIEW_BORDER_WIDTH + defaultOutlineWidth - SPLIT_HANDLE_WIDTH}px) / 2)`
+        : `${(1 - splitRatio) * 100}%`;
     const updatedTime = useRelativeTime(note?.updatedAt ?? 0, Boolean(note));
     useLayoutEffect(() => {
         setHeadings([]);
         setMobileOutlineOpen(false);
     }, [note?.id, showPreview]);
+    useLayoutEffect(() => {
+        const container = containerRef.current;
+        if (!container)
+            return;
+        const measure = () => {
+            const next = container.getBoundingClientRect().width;
+            setContainerWidth((current) => Math.abs(current - next) < 0.5 ? current : next);
+        };
+        measure();
+        if (typeof ResizeObserver === 'undefined') {
+            window.addEventListener('resize', measure);
+            return () => window.removeEventListener('resize', measure);
+        }
+        const observer = new ResizeObserver(measure);
+        observer.observe(container);
+        return () => observer.disconnect();
+    }, [loaded, note?.id]);
     const setEditorLayout = (next: EditorLayout) => void updateSettings({ preview: { layout: next } });
     const sources = useMemo(() => ({
         notes: () => Object.values(notes)
@@ -213,15 +250,15 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
       {settings.editor.showToolbar && showEditor && (<EditorToolbar view={view} mobile={isMobile} onPickImage={() => fileInputRef.current?.click()}/>)}
 
       <div ref={containerRef} className="flex min-h-0 flex-1">
-        {showEditor && (<div className="min-w-0" style={{ width: layout === 'split' ? `${splitRatio * 100}%` : '100%' }}>
+        {showEditor && (<div className="min-w-0" style={{ width: layout === 'split' ? editorWidth : '100%' }}>
             <CodeEditor key={note.id} value={content} onChange={onChange} settings={settings.editor} sources={sources} handlers={handlers} onReady={setView}/>
           </div>)}
 
-        {layout === 'split' && (<SplitResizer label={t("workspace.resize_editor_and_preview_panes")} containerRef={containerRef} ratio={splitRatio} onChange={(splitRatio) => setLayout({ splitRatio })} onReset={() => setLayout({ splitRatio: 0.5 })}/>)}
+        {layout === 'split' && (<SplitResizer label={t("workspace.resize_editor_and_preview_panes")} containerRef={containerRef} ratio={effectiveSplitRatio} onChange={(splitRatio) => setLayout({ splitRatio })} onReset={() => setLayout({ splitRatio: null })}/>)}
 
-        {showPreview && (<div className={cn('flex min-w-0 overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--bg-editor)]', layout === 'preview' && 'flex-1 border-l-0')} style={{ width: layout === 'split' ? `${(1 - splitRatio) * 100}%` : undefined }}>
+        {showPreview && (<div className={cn('flex min-w-0 overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--bg-editor)]', layout === 'preview' && 'flex-1 border-l-0')} style={{ width: layout === 'split' ? previewWidth : undefined }}>
             <Preview key={note.id} content={content} onHeadings={setHeadings} scrollerRef={previewScrollerRef} onRendered={invalidateSyncAnchors} className="min-w-0 flex-1"/>
-            {!isMobile && outlineOpen && headings.length > 0 && (<Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef}/>)}
+            {outlineVisible && (<Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef}/>)}
           </div>)}
       </div>
 

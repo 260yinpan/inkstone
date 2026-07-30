@@ -34,7 +34,7 @@ interface UiState {
   listCollapsed: boolean
 
   navDrawerOpen: boolean
-  splitRatio: number
+  splitRatio: number | null
   mobilePane: 'nav' | 'list' | 'editor' | 'preview'
 
 
@@ -88,12 +88,21 @@ interface UiState {
   applyAppearance: (patch: { theme?: ThemePref; accent?: AccentName; fontScale?: number }) => void
 }
 
+export const PANEL_WIDTHS = {
+  navigation: { min: 196, max: 380 },
+  noteList: { min: 260, max: 520 },
+} as const
+
+export const DEFAULT_LAYOUT = {
+  navWidth: PANEL_WIDTHS.navigation.min,
+  listWidth: PANEL_WIDTHS.noteList.min,
+  splitRatio: null as number | null,
+} as const
+
 const DEFAULTS = {
-  navWidth: 244,
-  listWidth: 328,
+  ...DEFAULT_LAYOUT,
   navCollapsed: false,
   listCollapsed: false,
-  splitRatio: 0.5,
   view: 'all' as ViewKind,
   folderId: null,
   tag: null,
@@ -137,8 +146,12 @@ function loadPersisted(): Partial<UiState> {
     const value = parsed as Record<string, unknown>
     const out: Partial<UiState> = {}
 
-    if (isFiniteNumber(value.navWidth)) out.navWidth = clamp(value.navWidth, 196, 380)
-    if (isFiniteNumber(value.listWidth)) out.listWidth = clamp(value.listWidth, 260, 520)
+    if (isFiniteNumber(value.navWidth)) {
+      out.navWidth = clamp(value.navWidth, PANEL_WIDTHS.navigation.min, PANEL_WIDTHS.navigation.max)
+    }
+    if (isFiniteNumber(value.listWidth)) {
+      out.listWidth = clamp(value.listWidth, PANEL_WIDTHS.noteList.min, PANEL_WIDTHS.noteList.max)
+    }
     if (typeof value.navCollapsed === 'boolean') out.navCollapsed = value.navCollapsed
     if (typeof value.listCollapsed === 'boolean') out.listCollapsed = value.listCollapsed
     if (isFiniteNumber(value.splitRatio)) out.splitRatio = clamp(value.splitRatio, 0.2, 0.8)

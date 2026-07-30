@@ -11,7 +11,8 @@
 <p align="center">
   <a href="./README.md">English</a> ·
   <a href="./CONTRIBUTING.md">参与开发</a> ·
-  <a href="./LICENSE">LGPL-3.0-only</a>
+  <a href="./LICENSE">LGPL-3.0-only</a> ·
+  <a href="https://inkstone-demo.pages.dev/">在线体验</a>
 </p>
 
 ## 项目简介

@@ -11,7 +11,8 @@
 <p align="center">
   <a href="./README_ZH.md">中文</a> ·
   <a href="./CONTRIBUTING.md">Contributing</a> ·
-  <a href="./LICENSE">LGPL-3.0-only</a>
+  <a href="./LICENSE">LGPL-3.0-only</a> ·
+  <a href="https://inkstone-demo.pages.dev/">Demo</a>
 </p>
 
 ## About

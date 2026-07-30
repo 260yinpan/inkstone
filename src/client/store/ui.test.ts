@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { applyThemeToDom, switchThemeWithTransition, useUi } from './ui'
+import { DEFAULT_LAYOUT, PANEL_WIDTHS, applyThemeToDom, switchThemeWithTransition, useUi } from './ui'
+
+describe('UI layout defaults', () => {
+  it('starts both left panels at their resizable minimum and leaves the split automatic', () => {
+    expect(DEFAULT_LAYOUT).toEqual({
+      navWidth: PANEL_WIDTHS.navigation.min,
+      listWidth: PANEL_WIDTHS.noteList.min,
+      splitRatio: null,
+    })
+  })
+})
 
 describe('UI appearance transitions', () => {
   afterEach(() => {

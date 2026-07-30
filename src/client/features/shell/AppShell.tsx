@@ -5,7 +5,7 @@ import { registerAll } from '../../lib/hotkeys';
 import { useBreakpoint } from '../../lib/hooks';
 import { useSyncEngine } from '../../lib/sync';
 import { Drawer } from '../../components/overlay';
-import { useUi } from '../../store/ui';
+import { PANEL_WIDTHS, useUi } from '../../store/ui';
 import { useNotes } from '../../store/notes';
 import { useSession } from '../../store/session';
 import { Sidebar } from '../sidebar/Sidebar';
@@ -51,14 +51,14 @@ export function AppShell() {
             <div style={{ width: navCollapsed ? 48 : navWidth }} className="shrink-0 overflow-hidden">
               <Sidebar collapsed={navCollapsed} onCollapse={toggleNav}/>
             </div>
-            {!navCollapsed && (<Resizer label={t("shell.resize_navigation_panel")} value={navWidth} min={196} max={380} onChange={(navWidth) => setLayout({ navWidth })} onReset={() => setLayout({ navWidth: 244 })}/>)}
+            {!navCollapsed && (<Resizer label={t("shell.resize_navigation_panel")} value={navWidth} min={PANEL_WIDTHS.navigation.min} max={PANEL_WIDTHS.navigation.max} onChange={(navWidth) => setLayout({ navWidth })} onReset={() => setLayout({ navWidth: PANEL_WIDTHS.navigation.min })}/>)}
           </>)}
 
         {showList && (<>
             <div style={{ width: listWidth }} className="shrink-0 overflow-hidden">
               <NoteList />
             </div>
-            <Resizer label={t("shell.resize_note_list")} value={listWidth} min={260} max={520} onChange={(listWidth) => setLayout({ listWidth })} onReset={() => setLayout({ listWidth: 328 })}/>
+            <Resizer label={t("shell.resize_note_list")} value={listWidth} min={PANEL_WIDTHS.noteList.min} max={PANEL_WIDTHS.noteList.max} onChange={(listWidth) => setLayout({ listWidth })} onReset={() => setLayout({ listWidth: PANEL_WIDTHS.noteList.min })}/>
           </>)}
 
         <main className="min-w-0 flex-1">

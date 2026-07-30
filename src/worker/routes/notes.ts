@@ -1,0 +1,809 @@
+import { Hono } from 'hono'
+import { LIMITS } from '@shared/constants'
+import { countText, deriveExcerpt, deriveTitle } from '@shared/markdown-utils'
+import { sliceText, truncateText, utf8ByteLength } from '@shared/text-utils'
+import type {
+  CreateNoteBody,
+  ListNotesResponse,
+  Note,
+  PatchNoteBody,
+  SortKey,
+  SortOrder,
+  ViewKind,
+} from '@shared/types'
+import type { AppBindings } from '../env'
+import { NOTE_COLUMNS, NOTE_COLUMNS_FULL, toNote, toNoteSummary, type NoteRow } from '../db/rows'
+import {
+  buildNoteDerivedStatements,
+  changeStatement,
+  LINK_TARGET_SUBQUERY,
+  pruneOrphanTags,
+} from '../db/writes'
+import { sha256Hex } from '../lib/encoding'
+import { ApiError } from '../lib/errors'
+import { isValidId, newId } from '../lib/id'
+import { broadcastCursor } from '../lib/notify'
+import { assertContentSize, clampInt, JSON_BODY_LIMITS, readJson } from '../lib/request'
+import { requireAuth } from '../middleware/auth'
+
+export const notesRoutes = new Hono<AppBindings>()
+
+notesRoutes.use('*', requireAuth)
+
+
+const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000
+
+const SNAPSHOT_DIFF_THRESHOLD = 400
+
+
+notesRoutes.get('/', async (c) => {
+  const userId = c.get('userId')
+  const view = (c.req.query('view') as ViewKind) || 'all'
+  const sort = (c.req.query('sort') as SortKey) || 'updated'
+  const order: SortOrder = c.req.query('order') === 'asc' ? 'asc' : 'desc'
+  const limit = clampInt(c.req.query('limit'), 1, 1000, 500)
+  const offset = clampInt(c.req.query('cursor'), 0, 1_000_000, 0)
+
+  const binds: unknown[] = [userId]
+  let where = 'n.user_id = ?1'
+
+  if (view === 'trash') {
+    where += ' AND n.deleted_at IS NOT NULL'
+  } else {
+    where += ' AND n.deleted_at IS NULL'
+    where += view === 'archived' ? ' AND n.is_archived = 1' : ' AND n.is_archived = 0'
+  }
+
+  if (view === 'starred') where += ' AND n.is_starred = 1'
+  if (view === 'unfiled') where += ' AND n.folder_id IS NULL'
+
+  if (view === 'folder') {
+    const folderId = c.req.query('folderId')
+    if (!folderId) throw ApiError.badRequest('Missing folderId')
+    binds.push(folderId)
+    where += ` AND n.folder_id = ?${binds.length}`
+  }
+
+  if (view === 'tag') {
+    const tag = c.req.query('tag')
+    if (!tag) throw ApiError.badRequest('Missing tag')
+    binds.push(tag)
+    where += ` AND EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
+                 WHERE nt.note_id = n.id AND t.name = ?${binds.length})`
+  }
+
+  const dir = order === 'asc' ? 'ASC' : 'DESC'
+  const orderBy =
+    view === 'trash'
+      ? `n.deleted_at ${dir}`
+      : ({
+          updated: `n.is_pinned DESC, n.updated_at ${dir}`,
+          created: `n.is_pinned DESC, n.created_at ${dir}`,
+          title: `n.is_pinned DESC, n.title COLLATE NOCASE ${dir}`,
+        }[sort] ?? `n.is_pinned DESC, n.updated_at ${dir}`)
+
+  const totalRow = await c.env.DB.prepare(`SELECT COUNT(*) AS n FROM notes n WHERE ${where}`)
+    .bind(...binds)
+    .first<{ n: number }>()
+
+  const { results } = await c.env.DB.prepare(
+    `SELECT ${NOTE_COLUMNS} FROM notes n WHERE ${where} ORDER BY ${orderBy}
+       LIMIT ?${binds.length + 1} OFFSET ?${binds.length + 2}`,
+  )
+    .bind(...binds, limit, offset)
+    .all<NoteRow>()
+
+  const notes = results.map(toNoteSummary)
+  const total = totalRow?.n ?? notes.length
+  const body: ListNotesResponse = {
+    notes,
+    total,
+    nextCursor: nextNotesCursor(offset, notes.length, total),
+  }
+  return c.json(body)
+})
+
+
+notesRoutes.post('/trash/empty', async (c) => {
+  const userId = c.get('userId')
+  const { ftsEnabled } = c.get('database')
+  const row = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS count FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`,
+  )
+    .bind(userId)
+    .first<{ count: number }>()
+  const purged = row?.count ?? 0
+
+  if (purged) {
+    const trashed = `SELECT id FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`
+    const statements = [
+      c.env.DB.prepare(`DELETE FROM note_tags WHERE note_id IN (${trashed})`).bind(userId),
+      c.env.DB.prepare(`DELETE FROM links WHERE source_note_id IN (${trashed})`).bind(userId),
+      c.env.DB.prepare(
+        `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
+          WHERE user_id = ?1 AND target_note_id IN (${trashed})`,
+      ).bind(userId),
+      c.env.DB.prepare(`DELETE FROM note_versions WHERE note_id IN (${trashed})`).bind(userId),
+      c.env.DB.prepare(
+        `DELETE FROM share_asset_sessions WHERE slug IN (
+           SELECT slug FROM shares WHERE user_id = ?1 AND note_id IN (${trashed})
+         )`,
+      ).bind(userId),
+      c.env.DB.prepare(`DELETE FROM shares WHERE note_id IN (${trashed})`).bind(userId),
+      c.env.DB.prepare(`UPDATE attachments SET note_id = NULL WHERE note_id IN (${trashed})`).bind(userId),
+      c.env.DB.prepare(
+        `DELETE FROM import_mappings
+          WHERE user_id = ?1 AND entity = 'note' AND target_id IN (${trashed})`,
+      ).bind(userId),
+    ]
+    if (ftsEnabled) {
+      statements.push(
+        c.env.DB.prepare(`DELETE FROM notes_fts WHERE note_id IN (${trashed})`).bind(userId),
+      )
+    }
+    statements.push(
+      c.env.DB
+        .prepare(
+          `INSERT INTO changes (user_id, entity, entity_id, op, at)
+           SELECT ?1, 'note', id, 'delete', ?2
+             FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`,
+        )
+        .bind(userId, Date.now()),
+      c.env.DB
+        .prepare(`DELETE FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`)
+        .bind(userId),
+    )
+    await c.env.DB.batch(statements)
+  }
+  await pruneOrphanTags(c.env.DB, userId)
+  await broadcastCursor(c)
+  return c.json({ purged })
+})
+
+
+notesRoutes.get('/:id', async (c) => {
+  const note = await loadNote(c.env.DB, c.get('userId'), c.req.param('id'))
+  return c.json(note)
+})
+
+notesRoutes.post('/', async (c) => {
+  const userId = c.get('userId')
+  const { ftsEnabled } = c.get('database')
+  const body = await readJson<CreateNoteBody>(c, JSON_BODY_LIMITS.note)
+
+  if (body.content !== undefined && typeof body.content !== 'string') {
+    throw ApiError.badRequest('content must be a string')
+  }
+  if (body.title !== undefined && typeof body.title !== 'string') {
+    throw ApiError.badRequest('title must be a string')
+  }
+  if (body.folderId !== undefined && body.folderId !== null && typeof body.folderId !== 'string') {
+    throw ApiError.badRequest('folderId must be a string or null')
+  }
+  if (body.id !== undefined && !isValidId(body.id)) {
+    throw ApiError.badRequest('id must be a valid note id')
+  }
+  const content = typeof body.content === 'string' ? body.content : ''
+  assertContentSize(content)
+
+  const id = body.id ?? newId()
+  if (body.id) {
+    const existing = await c.env.DB.prepare(
+      `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
+    )
+      .bind(id, userId)
+      .first<NoteRow>()
+    if (existing) return c.json(toNote(existing))
+    const collision = await c.env.DB.prepare(`SELECT user_id FROM notes WHERE id = ?1`)
+      .bind(id)
+      .first<{ user_id: string }>()
+    if (collision) throw ApiError.conflict('This note id is already in use')
+  }
+  const now = Date.now()
+  const title = body.title ? truncateText(body.title.trim(), LIMITS.titleMaxLength) || deriveTitle(content) : deriveTitle(content)
+  const excerpt = deriveExcerpt(content)
+  const { words, chars } = countText(content)
+  const hash = await sha256Hex(content)
+  const folderId = await resolveFolderId(c.env.DB, userId, body.folderId ?? null)
+
+  const insert = c.env.DB.prepare(
+    `INSERT OR IGNORE INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
+       is_pinned, is_starred, is_archived, position, content_hash, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, 0, 0, 0, ?9, ?10, ?11, ?11)`,
+  )
+    .bind(id, userId, folderId, title, content, excerpt, words, chars, now, hash, now)
+  const derived = buildNoteDerivedStatements({
+    db: c.env.DB,
+    userId,
+    noteId: id,
+    title,
+    content,
+    ftsEnabled,
+    expectedRev: 1,
+    expectedContentHash: hash,
+    expectedTitle: title,
+    expectedUpdatedAt: now,
+  }).statements
+  const createChange = c.env.DB.prepare(
+    `INSERT INTO changes (user_id, entity, entity_id, op, at)
+     SELECT ?1, 'note', ?2, 'upsert', ?3
+      WHERE EXISTS (
+        SELECT 1 FROM notes
+         WHERE id = ?2 AND user_id = ?1 AND rev = 1
+           AND content_hash = ?4 AND title = ?5 AND created_at = ?3 AND updated_at = ?3
+      )`,
+  ).bind(userId, id, now, hash, title)
+  const [insertResult] = await c.env.DB.batch([insert, ...derived, createChange])
+  const created = await c.env.DB.prepare(
+    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
+  )
+    .bind(id, userId)
+    .first<NoteRow>()
+  if (!created) throw ApiError.conflict('This note id is already in use')
+  await broadcastCursor(c)
+
+  return c.json(toNote(created), insertResult?.meta.changes ? 201 : 200)
+})
+
+notesRoutes.patch('/:id', async (c) => {
+  const userId = c.get('userId')
+  const id = c.req.param('id')
+  const { ftsEnabled } = c.get('database')
+  const body = await readJson<PatchNoteBody>(c, JSON_BODY_LIMITS.note)
+
+  const row = await c.env.DB.prepare(
+    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
+  )
+    .bind(id, userId)
+    .first<NoteRow>()
+  if (!row) {
+    const deletion = await c.env.DB.prepare(
+      `SELECT MAX(seq) AS seq FROM changes
+        WHERE user_id = ?1 AND entity = 'note' AND entity_id = ?2 AND op = 'delete'`,
+    )
+      .bind(userId, id)
+      .first<{ seq: number | null }>()
+    throw ApiError.notFound('Note not found', { deletionCursor: deletion?.seq ?? null })
+  }
+
+  if (!Number.isInteger(body.rev) || body.rev < 1) {
+    throw ApiError.badRequest('rev must be a positive integer')
+  }
+  if (body.rev !== row.rev) {
+    throw ApiError.conflict('This note was modified elsewhere', { server: toNote(row) })
+  }
+  if (body.content !== undefined && typeof body.content !== 'string') {
+    throw ApiError.badRequest('content must be a string')
+  }
+  if (body.title !== undefined && typeof body.title !== 'string') {
+    throw ApiError.badRequest('title must be a string')
+  }
+  if (body.folderId !== undefined && body.folderId !== null && typeof body.folderId !== 'string') {
+    throw ApiError.badRequest('folderId must be a string or null')
+  }
+  for (const [key, value] of [
+    ['isPinned', body.isPinned],
+    ['isStarred', body.isStarred],
+    ['isArchived', body.isArchived],
+    ['quiet', body.quiet],
+    ['preserveVersion', body.preserveVersion],
+  ] as const) {
+    if (value !== undefined && typeof value !== 'boolean') {
+      throw ApiError.badRequest(`${key} must be a boolean`)
+    }
+  }
+
+  const now = Math.max(Date.now(), row.updated_at + 1)
+  const sets: string[] = []
+  const binds: unknown[] = []
+  let contentChanged = false
+  let newTitle = row.title
+  let newContent = row.content
+  let newHash = row.content_hash
+
+  if (typeof body.content === 'string' && body.content !== row.content) {
+    assertContentSize(body.content)
+    const hash = await sha256Hex(body.content)
+    if (hash !== row.content_hash) {
+      contentChanged = true
+      newHash = hash
+      newContent = body.content
+      newTitle =
+        body.title ? truncateText(body.title.trim(), LIMITS.titleMaxLength) || deriveTitle(body.content) : deriveTitle(body.content)
+      const { words, chars } = countText(body.content)
+      push(sets, binds, 'content', body.content)
+      push(sets, binds, 'content_hash', hash)
+      push(sets, binds, 'title', newTitle)
+      push(sets, binds, 'excerpt', deriveExcerpt(body.content))
+      push(sets, binds, 'word_count', words)
+      push(sets, binds, 'char_count', chars)
+    }
+  } else if (typeof body.title === 'string' && body.title.trim() && body.title.trim() !== row.title) {
+    newTitle = truncateText(body.title.trim(), LIMITS.titleMaxLength)
+    push(sets, binds, 'title', newTitle)
+  }
+
+  if (body.folderId !== undefined) {
+    push(sets, binds, 'folder_id', await resolveFolderId(c.env.DB, userId, body.folderId))
+  }
+  if (typeof body.isPinned === 'boolean') push(sets, binds, 'is_pinned', body.isPinned ? 1 : 0)
+  if (typeof body.isStarred === 'boolean') push(sets, binds, 'is_starred', body.isStarred ? 1 : 0)
+  if (typeof body.isArchived === 'boolean') push(sets, binds, 'is_archived', body.isArchived ? 1 : 0)
+
+  if (!sets.length) return c.json(toNote(row))
+
+  push(sets, binds, 'updated_at', now)
+  const nextRev = row.rev + 1
+  push(sets, binds, 'rev', nextRev)
+  const mutationGuard = `EXISTS (SELECT 1 FROM notes
+    WHERE id = ?1 AND user_id = ?2 AND rev = ?3
+      AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
+  const mutationValues = [id, userId, nextRev, newHash, newTitle, now] as const
+
+  binds.push(id, userId, body.rev)
+  const update = c.env.DB.prepare(
+    `UPDATE notes SET ${sets.join(', ')}
+      WHERE id = ?${binds.length - 2} AND user_id = ?${binds.length - 1} AND rev = ?${binds.length}`,
+  ).bind(...binds)
+
+  const statements: D1PreparedStatement[] = [update]
+
+  if (contentChanged && !body.quiet && row.content) {
+    const last = await c.env.DB.prepare(
+      `SELECT created_at FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC LIMIT 1`,
+    )
+      .bind(id)
+      .first<{ created_at: number }>()
+    const bigChange = Math.abs(newContent.length - row.content.length) >= SNAPSHOT_DIFF_THRESHOLD
+    if (body.preserveVersion || !last || now - last.created_at > SNAPSHOT_INTERVAL_MS || bigChange) {
+      statements.push(
+        c.env.DB.prepare(
+          `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
+           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+            WHERE ${shiftSqlPlaceholders(mutationGuard, 7)}`,
+        ).bind(newId(), id, userId, row.title, row.content, utf8ByteLength(row.content), now, ...mutationValues),
+        c.env.DB.prepare(
+          `DELETE FROM note_versions WHERE note_id = ?1
+             AND ${shiftSqlPlaceholders(mutationGuard, 1)}
+             AND id NOT IN (
+               SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC LIMIT ?8
+             )`,
+        ).bind(id, ...mutationValues, LIMITS.versionsPerNote),
+      )
+    }
+  }
+
+  if (row.deleted_at === null && (contentChanged || newTitle !== row.title)) {
+    statements.push(...buildNoteDerivedStatements({
+      db: c.env.DB,
+      userId,
+      noteId: id,
+      title: newTitle,
+      content: newContent,
+      ftsEnabled,
+      titleChanged: newTitle !== row.title,
+      previousTitle: row.title,
+      expectedRev: nextRev,
+      expectedContentHash: newHash,
+      expectedTitle: newTitle,
+      expectedUpdatedAt: now,
+    }).statements)
+    if (contentChanged) {
+      statements.push(
+        c.env.DB.prepare(
+          `DELETE FROM tags WHERE user_id = ?1
+             AND ${shiftSqlPlaceholders(mutationGuard, 1)}
+             AND id NOT IN (SELECT tag_id FROM note_tags)`,
+        ).bind(userId, ...mutationValues),
+      )
+    }
+  }
+
+  statements.push(
+    c.env.DB.prepare(
+      `INSERT INTO changes (user_id, entity, entity_id, op, at)
+       SELECT ?1, 'note', ?2, 'upsert', ?3
+        WHERE ${shiftSqlPlaceholders(mutationGuard, 3)}`,
+    ).bind(userId, id, now, ...mutationValues),
+  )
+
+  const [updateResult] = await c.env.DB.batch(statements)
+  if (!updateResult?.meta.changes) {
+    const current = await loadNote(c.env.DB, userId, id)
+    throw ApiError.conflict('This note was modified elsewhere', { server: current })
+  }
+  await broadcastCursor(c)
+  return c.json(await loadNote(c.env.DB, userId, id))
+})
+
+notesRoutes.delete('/:id', async (c) => {
+  const userId = c.get('userId')
+  const id = c.req.param('id')
+  const { ftsEnabled } = c.get('database')
+
+  const row = await loadNoteRow(c.env.DB, userId, id)
+  if (row.deleted_at !== null) throw ApiError.notFound('The note does not exist or is in the trash')
+  const now = Math.max(Date.now(), row.updated_at + 1)
+  const nextRev = row.rev + 1
+  const guard = `EXISTS (SELECT 1 FROM notes
+    WHERE id = ?1 AND user_id = ?2 AND rev = ?3 AND deleted_at IS NOT NULL)`
+  const statements = [
+    c.env.DB.prepare(
+      `UPDATE notes SET deleted_at = ?1, updated_at = ?1, rev = ?2
+        WHERE id = ?3 AND user_id = ?4 AND rev = ?5 AND deleted_at IS NULL`,
+    ).bind(now, nextRev, id, userId, row.rev),
+    c.env.DB.prepare(`DELETE FROM links WHERE source_note_id = ?1 AND ${shiftSqlPlaceholders(guard, 1)}`)
+      .bind(id, id, userId, nextRev),
+    c.env.DB.prepare(
+      `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
+        WHERE target_note_id = ?1 AND user_id = ?2 AND ${shiftSqlPlaceholders(guard, 2)}`,
+    ).bind(id, userId, id, userId, nextRev),
+  ]
+  if (ftsEnabled) {
+    statements.push(
+      c.env.DB.prepare(`DELETE FROM notes_fts WHERE note_id = ?1 AND ${shiftSqlPlaceholders(guard, 1)}`)
+        .bind(id, id, userId, nextRev),
+    )
+  }
+  statements.push(
+    c.env.DB.prepare(
+      `INSERT INTO changes (user_id, entity, entity_id, op, at)
+       SELECT ?1, 'note', ?2, 'upsert', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}`,
+    ).bind(userId, id, now, id, userId, nextRev),
+  )
+  const [updated] = await c.env.DB.batch(statements)
+  if (!updated?.meta.changes) {
+    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(c.env.DB, userId, id) })
+  }
+  await broadcastCursor(c)
+  return c.json(await loadNote(c.env.DB, userId, id))
+})
+
+notesRoutes.post('/:id/restore', async (c) => {
+  const userId = c.get('userId')
+  const id = c.req.param('id')
+  const { ftsEnabled } = c.get('database')
+  const row = await loadNoteRow(c.env.DB, userId, id)
+  if (row.deleted_at === null) throw ApiError.badRequest('The note is not in the trash')
+
+  const now = Math.max(Date.now(), row.updated_at + 1)
+  const nextRev = row.rev + 1
+  const update = c.env.DB.prepare(
+    `UPDATE notes SET deleted_at = NULL, updated_at = ?1, rev = ?2
+      WHERE id = ?3 AND user_id = ?4 AND rev = ?5 AND deleted_at IS NOT NULL`,
+  ).bind(now, nextRev, id, userId, row.rev)
+  const derived = buildNoteDerivedStatements({
+    db: c.env.DB,
+    userId,
+    noteId: id,
+    title: row.title,
+    content: row.content,
+    ftsEnabled,
+    expectedRev: nextRev,
+    expectedContentHash: row.content_hash,
+    expectedTitle: row.title,
+    expectedUpdatedAt: now,
+  }).statements
+  const change = c.env.DB.prepare(
+    `INSERT INTO changes (user_id, entity, entity_id, op, at)
+     SELECT ?1, 'note', ?2, 'upsert', ?3
+      WHERE EXISTS (SELECT 1 FROM notes WHERE id = ?2 AND user_id = ?1 AND rev = ?4 AND deleted_at IS NULL)`,
+  ).bind(userId, id, now, nextRev)
+  const [updated] = await c.env.DB.batch([update, ...derived, change])
+  if (!updated?.meta.changes) {
+    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(c.env.DB, userId, id) })
+  }
+  await broadcastCursor(c)
+  return c.json(await loadNote(c.env.DB, userId, id))
+})
+
+notesRoutes.delete('/:id/purge', async (c) => {
+  const userId = c.get('userId')
+  const id = c.req.param('id')
+  const { ftsEnabled } = c.get('database')
+  const row = await loadNoteRow(c.env.DB, userId, id)
+  if (row.deleted_at === null) throw ApiError.notFound('The note does not exist or is not in the trash')
+  const guard = `EXISTS (SELECT 1 FROM notes
+    WHERE id = ?1 AND user_id = ?2 AND rev = ?3 AND deleted_at IS NOT NULL)`
+  const guarded = (sql: string) => c.env.DB
+    .prepare(`${sql} AND ${shiftSqlPlaceholders(guard, 1)}`)
+    .bind(id, id, userId, row.rev)
+  const statements: D1PreparedStatement[] = [
+    guarded(`DELETE FROM note_tags WHERE note_id = ?1`),
+    guarded(`DELETE FROM links WHERE source_note_id = ?1`),
+    c.env.DB.prepare(
+      `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
+        WHERE target_note_id = ?1 AND user_id = ?2 AND ${shiftSqlPlaceholders(guard, 2)}`,
+    ).bind(id, userId, id, userId, row.rev),
+    guarded(`DELETE FROM note_versions WHERE note_id = ?1`),
+    c.env.DB.prepare(
+      `DELETE FROM share_asset_sessions
+        WHERE slug IN (SELECT slug FROM shares WHERE note_id = ?1 AND user_id = ?2)
+          AND ${shiftSqlPlaceholders(guard, 2)}`,
+    ).bind(id, userId, id, userId, row.rev),
+    guarded(`DELETE FROM shares WHERE note_id = ?1`),
+    guarded(`UPDATE attachments SET note_id = NULL WHERE note_id = ?1`),
+    c.env.DB.prepare(
+      `DELETE FROM import_mappings
+        WHERE user_id = ?1 AND entity = 'note' AND target_id = ?2
+          AND EXISTS (SELECT 1 FROM notes
+            WHERE id = ?2 AND user_id = ?1 AND rev = ?3 AND deleted_at IS NOT NULL)`,
+    ).bind(userId, id, row.rev),
+  ]
+  if (ftsEnabled) statements.push(guarded(`DELETE FROM notes_fts WHERE note_id = ?1`))
+  statements.push(
+    c.env.DB.prepare(
+      `INSERT INTO changes (user_id, entity, entity_id, op, at)
+       SELECT ?1, 'note', ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
+       RETURNING seq`,
+    ).bind(userId, id, Date.now(), id, userId, row.rev),
+    c.env.DB.prepare(
+      `DELETE FROM notes WHERE id = ?1 AND user_id = ?2 AND rev = ?3 AND deleted_at IS NOT NULL`,
+    ).bind(id, userId, row.rev),
+    c.env.DB.prepare(`DELETE FROM tags WHERE user_id = ?1 AND id NOT IN (SELECT tag_id FROM note_tags)`)
+      .bind(userId),
+  )
+  const results = await c.env.DB.batch(statements)
+  const changeResult = results.at(-3) as D1Result<{ seq: number }> | undefined
+  const deleted = results.at(-2)
+  if (!deleted?.meta.changes) throw ApiError.conflict('Note state changed. Refresh and try again')
+  const broadcastedCursor = await broadcastCursor(c)
+  const deletionCursor = changeResult?.results[0]?.seq
+  return c.json({
+    ok: true,
+    cursor: Number.isSafeInteger(deletionCursor) ? deletionCursor! : broadcastedCursor,
+  })
+})
+
+notesRoutes.post('/:id/duplicate', async (c) => {
+  const userId = c.get('userId')
+  const { ftsEnabled } = c.get('database')
+  const source = await loadNoteRow(c.env.DB, userId, c.req.param('id'))
+
+  const id = newId()
+  const now = Date.now()
+  const title = truncateText(`${source.title} copy`, LIMITS.titleMaxLength)
+  const content = source.content
+  const hash = await sha256Hex(content)
+
+  const insert = c.env.DB.prepare(
+    `INSERT INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
+       is_pinned, is_starred, is_archived, position, content_hash, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, 0, 0, ?9, ?10, ?11, ?12, ?12)`,
+  )
+    .bind(
+      id,
+      userId,
+      source.folder_id,
+      title,
+      content,
+      source.excerpt,
+      source.word_count,
+      source.char_count,
+      source.is_archived,
+      now,
+      hash,
+      now,
+    )
+  const derived = buildNoteDerivedStatements({
+    db: c.env.DB,
+    userId,
+    noteId: id,
+    title,
+    content,
+    ftsEnabled,
+    expectedRev: 1,
+    expectedContentHash: hash,
+    expectedTitle: title,
+    expectedUpdatedAt: now,
+  }).statements
+  await c.env.DB.batch([insert, ...derived, changeStatement(c.env.DB, userId, 'note', id, 'upsert')])
+  await broadcastCursor(c)
+  return c.json(await loadNote(c.env.DB, userId, id), 201)
+})
+
+
+notesRoutes.get('/:id/versions', async (c) => {
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, note_id, title, length(CAST(content AS BLOB)) AS size, created_at FROM note_versions
+       WHERE note_id = ?1 AND user_id = ?2 ORDER BY created_at DESC LIMIT 100`,
+  )
+    .bind(c.req.param('id'), c.get('userId'))
+    .all<{ id: string; note_id: string; title: string; size: number; created_at: number }>()
+
+  return c.json({
+    versions: results.map((r) => ({
+      id: r.id,
+      noteId: r.note_id,
+      title: r.title,
+      size: r.size,
+      createdAt: r.created_at,
+    })),
+  })
+})
+
+notesRoutes.get('/:id/versions/:versionId', async (c) => {
+  const row = await c.env.DB.prepare(
+    `SELECT id, note_id, title, content, length(CAST(content AS BLOB)) AS size, created_at FROM note_versions
+       WHERE id = ?1 AND note_id = ?2 AND user_id = ?3`,
+  )
+    .bind(c.req.param('versionId'), c.req.param('id'), c.get('userId'))
+    .first<{
+      id: string
+      note_id: string
+      title: string
+      content: string
+      size: number
+      created_at: number
+    }>()
+  if (!row) throw ApiError.notFound('Version not found')
+  return c.json({
+    id: row.id,
+    noteId: row.note_id,
+    title: row.title,
+    content: row.content,
+    size: row.size,
+    createdAt: row.created_at,
+  })
+})
+
+notesRoutes.post('/:id/versions/:versionId/restore', async (c) => {
+  const userId = c.get('userId')
+  const id = c.req.param('id')
+  const { ftsEnabled } = c.get('database')
+
+  const version = await c.env.DB.prepare(
+    `SELECT title, content FROM note_versions WHERE id = ?1 AND note_id = ?2 AND user_id = ?3`,
+  )
+    .bind(c.req.param('versionId'), id, userId)
+    .first<{ title: string; content: string }>()
+  if (!version) throw ApiError.notFound('Version not found')
+
+  const current = await loadNoteRow(c.env.DB, userId, id)
+  const now = Math.max(Date.now(), current.updated_at + 1)
+  const { words, chars } = countText(version.content)
+  const title = restoredVersionTitle(version.title, version.content)
+  const hash = await sha256Hex(version.content)
+  const nextRev = current.rev + 1
+  const mutationGuard = `EXISTS (SELECT 1 FROM notes
+    WHERE id = ?1 AND user_id = ?2 AND rev = ?3
+      AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
+  const mutationValues = [id, userId, nextRev, hash, title, now] as const
+  const update = c.env.DB.prepare(
+    `UPDATE notes SET content = ?1, title = ?2, excerpt = ?3, word_count = ?4, char_count = ?5,
+       content_hash = ?6, rev = ?7, updated_at = ?8
+       WHERE id = ?9 AND user_id = ?10 AND rev = ?11`,
+  )
+    .bind(
+      version.content,
+      title,
+      deriveExcerpt(version.content),
+      words,
+      chars,
+      hash,
+      nextRev,
+      now,
+      id,
+      userId,
+      current.rev,
+    )
+  const snapshot = c.env.DB.prepare(
+    `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
+     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+      WHERE ${shiftSqlPlaceholders(mutationGuard, 7)}`,
+  ).bind(newId(), id, userId, current.title, current.content, utf8ByteLength(current.content), now, ...mutationValues)
+  const trimVersions = c.env.DB.prepare(
+    `DELETE FROM note_versions WHERE note_id = ?1
+       AND ${shiftSqlPlaceholders(mutationGuard, 1)}
+       AND id NOT IN (SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC LIMIT ?8)`,
+  ).bind(id, ...mutationValues, LIMITS.versionsPerNote)
+  const derived = buildNoteDerivedStatements({
+    db: c.env.DB,
+    userId,
+    noteId: id,
+    title,
+    content: version.content,
+    ftsEnabled,
+    previousTitle: current.title,
+    expectedRev: nextRev,
+    expectedContentHash: hash,
+    expectedTitle: title,
+    expectedUpdatedAt: now,
+    deleted: current.deleted_at !== null,
+  }).statements
+  const change = c.env.DB.prepare(
+    `INSERT INTO changes (user_id, entity, entity_id, op, at)
+     SELECT ?1, 'note', ?2, 'upsert', ?3
+      WHERE ${shiftSqlPlaceholders(mutationGuard, 3)}`,
+  ).bind(userId, id, now, ...mutationValues)
+  const [updated] = await c.env.DB.batch([update, snapshot, trimVersions, ...derived, change])
+  if (!updated?.meta.changes) {
+    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(c.env.DB, userId, id) })
+  }
+  await broadcastCursor(c)
+  return c.json(await loadNote(c.env.DB, userId, id))
+})
+
+
+notesRoutes.get('/:id/backlinks', async (c) => {
+  const userId = c.get('userId')
+  const id = c.req.param('id')
+  const note = await loadNoteRow(c.env.DB, userId, id)
+
+  const { results } = await c.env.DB.prepare(
+    `SELECT n.id, n.title, n.content FROM links l
+       JOIN notes n ON n.id = l.source_note_id
+      WHERE l.user_id = ?1 AND l.target_note_id = ?2
+        AND n.deleted_at IS NULL AND n.id != ?2
+       ORDER BY n.updated_at DESC LIMIT 50`,
+  )
+    .bind(userId, id)
+    .all<{ id: string; title: string; content: string }>()
+
+  return c.json({
+    backlinks: results.map((r) => ({
+      id: r.id,
+      title: r.title,
+      context: linkContext(r.content, note.title),
+    })),
+  })
+})
+
+
+async function loadNote(db: D1Database, userId: string, id: string): Promise<Note> {
+  return toNote(await loadNoteRow(db, userId, id))
+}
+
+async function loadNoteRow(db: D1Database, userId: string, id: string): Promise<NoteRow> {
+  const row = await db
+    .prepare(`SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`)
+    .bind(id, userId)
+    .first<NoteRow>()
+  if (!row) throw ApiError.notFound('Note not found')
+  return row
+}
+
+function linkContext(content: string, title: string): string {
+  const needle = `[[${title}`
+  const idx = content.toLowerCase().indexOf(needle.toLowerCase())
+  if (idx < 0) return truncateText(content, 120).replace(/\s+/g, ' ').trim()
+  const start = Math.max(0, idx - 60)
+  const end = Math.min(content.length, idx + needle.length + 90)
+  return (
+    (start > 0 ? '…' : '') +
+    sliceText(content, start, end).replace(/\s+/g, ' ').trim() +
+    (end < content.length ? '…' : '')
+  )
+}
+
+export function restoredVersionTitle(title: string, content: string): string {
+  return truncateText(title.trim(), LIMITS.titleMaxLength) || deriveTitle(content)
+}
+
+export function nextNotesCursor(offset: number, returned: number, total: number): string | null {
+  const next = offset + returned
+  return returned > 0 && next < total ? String(next) : null
+}
+
+function push(sets: string[], binds: unknown[], column: string, value: unknown): void {
+  binds.push(value)
+  sets.push(`${column} = ?${binds.length}`)
+}
+
+function shiftSqlPlaceholders(sql: string, offset: number): string {
+  return sql.replace(/\?(\d+)/g, (_match, value: string) => `?${Number(value) + offset}`)
+}
+
+async function resolveFolderId(
+  db: D1Database,
+  userId: string,
+  folderId: string | null | undefined,
+): Promise<string | null> {
+  if (!folderId) return null
+  const row = await db
+    .prepare(`SELECT id FROM folders WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`)
+    .bind(folderId, userId)
+    .first<{ id: string }>()
+  if (!row) throw ApiError.badRequest('Folder not found')
+  return row.id
+}

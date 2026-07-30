@@ -1,0 +1,585 @@
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Archive, ArrowDownWideNarrow, CheckSquare2, Copy, FolderInput, MoreHorizontal, Pin, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, } from 'lucide-react';
+import type { NoteSummary, SortKey, ViewKind } from '@shared/types';
+import { cn } from '../../lib/cn';
+import { shortTime, groupLabel } from '../../lib/time';
+import { useNow } from '../../lib/hooks';
+import { fuzzyFilter, splitByRanges } from '../../lib/fuzzy';
+import { useBreakpoint } from '../../lib/hooks';
+import { api } from '../../lib/api';
+import { prettyCombo } from '../../lib/hotkeys';
+import { IconButton } from '../../components/primitives';
+import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
+import { Empty, NoteListSkeleton } from '../../components/feedback';
+import { useUi } from '../../store/ui';
+import { useNotes, useVisibleNotes } from '../../store/notes';
+import { t, useLocale, type MessageKey } from "../../lib/i18n";
+const VIEW_MESSAGE_KEYS: Record<ViewKind, MessageKey> = {
+    all: 'navigation.all_notes',
+    recent: 'navigation.recently_edited',
+    starred: 'navigation.favorites',
+    unfiled: 'navigation.unfiled',
+    archived: 'navigation.archive',
+    trash: 'navigation.trash',
+    folder: 'navigation.folder',
+    tag: 'navigation.tag',
+};
+const EMPTY_HIGHLIGHT: [
+    number,
+    number
+][] = [];
+export function NoteList() {
+    const locale = useLocale();
+    const breakpoint = useBreakpoint();
+    const view = useUi((s) => s.view);
+    const folderId = useUi((s) => s.folderId);
+    const tag = useUi((s) => s.tag);
+    const sort = useUi((s) => s.sort);
+    const order = useUi((s) => s.order);
+    const density = useUi((s) => s.density);
+    const setSort = useUi((s) => s.setSort);
+    const activeNoteId = useUi((s) => s.activeNoteId);
+    const toggleNavDrawer = useUi((s) => s.toggleNavDrawer);
+    const notes = useVisibleNotes();
+    const folders = useNotes((s) => s.folders);
+    const loading = useNotes((s) => s.loading);
+    const hydrated = useNotes((s) => s.hydrated);
+    const createNote = useNotes((s) => s.createNote);
+    const openNote = useNotes((s) => s.openNote);
+    const { emptyTrash, emptyingTrash } = useEmptyTrash();
+    const [filter, setFilter] = useState('');
+    const [sortMenuOpen, setSortMenuOpen] = useState(false);
+    const sortButtonRef = useRef<HTMLButtonElement>(null);
+    const listRef = useRef<HTMLDivElement>(null);
+    const now = useNow();
+
+    useEffect(() => setFilter(''), [view, folderId, tag]);
+    const title = useMemo(() => {
+        if (view === 'folder')
+            return folders.find((f) => f.id === folderId)?.name ?? t("navigation.folder");
+        if (view === 'tag')
+            return `#${tag ?? ''}`;
+        return t(VIEW_MESSAGE_KEYS[view]);
+    }, [view, folderId, tag, folders, locale]);
+    const filtered = useMemo(() => {
+        if (!filter.trim())
+            return notes.map((note) => ({ note, ranges: EMPTY_HIGHLIGHT }));
+        return fuzzyFilter(notes, filter, (n) => `${n.title} ${n.excerpt}`, 200).map(({ item, match }) => ({
+            note: item,
+            ranges: match.ranges.filter(([s]) => s < item.title.length),
+        }));
+    }, [notes, filter]);
+    const filteredIds = useMemo(() => filtered.map((item) => item.note.id), [filtered]);
+    const filteredIdsRef = useRef(filteredIds);
+    filteredIdsRef.current = filteredIds;
+    const groups = useMemo(() => groupNotes(filtered, sort, view === 'trash', now), [filtered, sort, view, locale, now]);
+    useEffect(() => {
+        if (!activeNoteId)
+            return;
+        listRef.current
+            ?.querySelector<HTMLElement>(`[data-note-id="${activeNoteId}"]`)
+            ?.scrollIntoView({ block: 'nearest' });
+    }, [activeNoteId]);
+    const onKeyDown = (event: React.KeyboardEvent) => {
+        if (event.key === 'Escape') {
+            useUi.getState().setSelected(activeNoteId ? [activeNoteId] : []);
+            return;
+        }
+        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
+            return;
+        event.preventDefault();
+        const index = filteredIds.indexOf(activeNoteId ?? '');
+        const next = event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+                ? filteredIds.length - 1
+                : event.key === 'ArrowDown'
+                    ? index + 1
+                    : index - 1;
+        const target = filteredIds[Math.max(0, Math.min(filteredIds.length - 1, next))];
+        if (target)
+            void openNote(target);
+    };
+    const selectRange = useCallback((targetId: string) => {
+        const ids = filteredIdsRef.current;
+        const ui = useUi.getState();
+        const anchor = ui.selectedIds[0] ?? ui.activeNoteId;
+        const from = ids.indexOf(anchor ?? '');
+        const to = ids.indexOf(targetId);
+        if (from < 0 || to < 0) {
+            ui.setSelected([targetId]);
+            return;
+        }
+        const [lo, hi] = from <= to ? [from, to] : [to, from];
+        ui.setSelected(ids.slice(lo, hi + 1));
+    }, []);
+    const sortItems: MenuItem[] = [
+        { id: 'updated', label: t("notes.modified"), checked: sort === 'updated', onSelect: () => setSort('updated') },
+        { id: 'created', label: t("notes.created"), checked: sort === 'created', onSelect: () => setSort('created') },
+        { id: 'title', label: t("notes.title"), checked: sort === 'title', onSelect: () => setSort('title', 'asc') },
+        {
+            id: 'order',
+            label: order === 'desc' ? t("notes.sort_ascending") : t("notes.sort_descending"),
+            separatorBefore: true,
+            onSelect: () => setSort(sort, order === 'desc' ? 'asc' : 'desc'),
+        },
+        {
+            id: 'density',
+            label: density === 'comfortable' ? t("notes.compact_list") : t("notes.comfortable_list"),
+            onSelect: () => useUi.getState().setDensity(density === 'comfortable' ? 'compact' : 'comfortable'),
+        },
+    ];
+    return (<section className="relative flex h-full min-h-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-base)]">
+      <header className="shrink-0 px-3 pt-3 pb-2">
+        <div className="mb-2.5 flex items-center justify-between gap-2">
+          <h2 className="min-w-0 truncate text-[14.5px] font-semibold tracking-[-0.016em] text-[var(--text-primary)]">
+            {title}
+          </h2>
+          <div className="flex shrink-0 items-center gap-0.5">
+            {breakpoint === 'tablet' && (<Tooltip label={t("notes.open_navigation")}>
+                <IconButton label={t("notes.open_navigation")} size="sm" onClick={() => toggleNavDrawer(true)}>
+                  <PanelLeft size={14}/>
+                </IconButton>
+              </Tooltip>)}
+            <Tooltip label={t("notes.sort_and_display")}>
+              <IconButton label={t("notes.sort_and_display")} size="sm" ref={sortButtonRef} onClick={() => setSortMenuOpen(true)}>
+                <ArrowDownWideNarrow size={14}/>
+              </IconButton>
+            </Tooltip>
+            {view !== 'trash' && (<Tooltip label={t("common.new_note")} combo="mod+n">
+                <IconButton label={t("common.new_note")} size="sm" onClick={() => void createNote()}>
+                  <Plus size={15}/>
+                </IconButton>
+              </Tooltip>)}
+          </div>
+        </div>
+
+        <div className="relative">
+          <Search size={13} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[var(--text-quaternary)]"/>
+          <input aria-label={t("notes.filter_in_this_view")} value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={(e) => {
+            if (e.key === 'Escape')
+                setFilter('');
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const first = filtered[0]?.note.id;
+                if (first)
+                    void openNote(first);
+                listRef.current?.focus();
+            }
+        }} placeholder={t("notes.filter_in_this_view")} className={cn('h-10 w-full rounded-[var(--r-md)] border border-transparent bg-[var(--bg-inset)] md:h-[30px]', 'pr-9 pl-8 text-[12.5px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] md:pr-7 md:pl-7', 'transition-[border-color,box-shadow] duration-[var(--dur-fast)]', 'focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--accent-ring)] focus:outline-none')}/>
+          {filter && (<Tooltip label={t("notes.clear_filters")} side="left">
+              <button type="button" onClick={() => setFilter('')} aria-label={t("notes.clear_filters")} className="absolute top-1/2 right-1 flex size-8 -translate-y-1/2 items-center justify-center rounded text-[var(--text-quaternary)] hover:text-[var(--text-secondary)] md:right-2 md:size-auto md:p-0.5">
+                <X size={12}/>
+              </button>
+            </Tooltip>)}
+        </div>
+
+        {view === 'trash' && notes.length > 0 && (<button type="button" disabled={emptyingTrash} aria-busy={emptyingTrash} onClick={() => void emptyTrash()} className="mt-2 w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] py-1.5 text-[11.5px] text-[var(--text-tertiary)] transition-colors hover:border-[var(--danger)] hover:text-[var(--danger)] disabled:pointer-events-none disabled:opacity-50">{t("notes.empty_trash")}{notes.length}{t("notes.notes_93aeb9")}</button>)}
+      </header>
+
+      <div ref={listRef} role="listbox" aria-label={title} aria-multiselectable="true" aria-activedescendant={activeNoteId && filteredIds.includes(activeNoteId) ? `note-option-${activeNoteId}` : undefined} tabIndex={0} onKeyDown={onKeyDown} className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]">
+        {!hydrated && loading ? (<NoteListSkeleton />) : filtered.length === 0 ? (<ListEmpty view={view} filtering={Boolean(filter)}/>) : (groups.map((group) => (<div key={group.key} role="group" aria-label={group.label ?? title}>
+              {group.label && (<div className="px-2 pt-3 pb-1 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+                  {group.label}
+                </div>)}
+              <div role="presentation" className="space-y-px">
+                {group.items.map(({ note, ranges }) => (<NoteRow key={note.id} note={note} highlight={ranges} density={density} now={now} onRangeSelect={selectRange}/>))}
+              </div>
+            </div>)))}
+      </div>
+
+      <BulkBar />
+
+      <Menu anchor={sortButtonRef} open={sortMenuOpen} onClose={() => setSortMenuOpen(false)} items={sortItems} align="end"/>
+    </section>);
+}
+const NoteRow = memo(function NoteRow({ note, highlight, density, now, onRangeSelect, }: {
+    note: NoteSummary;
+    highlight: [
+        number,
+        number
+    ][];
+    density: 'comfortable' | 'compact';
+    now: number;
+    onRangeSelect: (noteId: string) => void;
+}) {
+    const breakpoint = useBreakpoint();
+    const active = useUi((s) => s.activeNoteId === note.id);
+    const selectedIds = useUi((s) => s.selectedIds);
+    const selected = selectedIds.includes(note.id);
+    const selectionHighlighted = selected && (selectedIds.length > 1 || !active);
+    const toggleSelected = useUi((s) => s.toggleSelected);
+    const openNote = useNotes((s) => s.openNote);
+    const patchNote = useNotes((s) => s.patchNote);
+    const deleteNote = useNotes((s) => s.deleteNote);
+    const restoreNote = useNotes((s) => s.restoreNote);
+    const purgeNote = useNotes((s) => s.purgeNote);
+    const duplicateNote = useNotes((s) => s.duplicateNote);
+    const folders = useNotes((s) => s.folders);
+    const menu = useContextMenu();
+    const menuButtonRef = useRef<HTMLButtonElement>(null);
+    const [menuOpen, setMenuOpen] = useState(false);
+    const purgeRef = useRef(false);
+    const [purging, setPurging] = useState(false);
+    const inTrash = Boolean(note.deletedAt);
+    const purge = async () => {
+        if (purgeRef.current)
+            return;
+        purgeRef.current = true;
+        setPurging(true);
+        try {
+            const ok = await confirm({
+                title: t("notes.permanently_delete_this_note"),
+                description: t("notes.this_operation_cannot_be_undone"),
+                confirmLabel: t("notes.delete_permanently"),
+                tone: 'danger',
+            });
+            if (ok)
+                await purgeNote(note.id);
+        }
+        finally {
+            purgeRef.current = false;
+            setPurging(false);
+        }
+    };
+    const items: MenuItem[] = inTrash
+        ? [
+            { id: 'restore', label: t("common.restore"), icon: <RotateCcw size={13}/>, onSelect: () => void restoreNote(note.id) },
+            {
+                id: 'purge',
+                label: t("notes.delete_permanently"),
+                icon: <Trash2 size={13}/>,
+                tone: 'danger',
+                separatorBefore: true,
+                disabled: purging,
+                onSelect: () => void purge(),
+            },
+        ]
+        : [
+            ...(breakpoint === 'mobile' ? [{
+                id: 'multi-select',
+                label: t("notes.add_to_selection"),
+                icon: <CheckSquare2 size={13}/>,
+                disabled: selectedIds.includes(note.id),
+                onSelect: () => toggleSelected(note.id, true),
+            } satisfies MenuItem] : []),
+            {
+                id: 'pin',
+                label: note.isPinned ? t("notes.unpin") : t("notes.pin"),
+                icon: note.isPinned ? <PinOff size={13}/> : <Pin size={13}/>,
+                onSelect: () => void patchNote(note.id, { isPinned: !note.isPinned }),
+            },
+            {
+                id: 'star',
+                label: note.isStarred ? t("common.remove_from_favorites") : t("navigation.favorites"),
+                icon: note.isStarred ? <StarOff size={13}/> : <Star size={13}/>,
+                combo: 'mod+d',
+                onSelect: () => void patchNote(note.id, { isStarred: !note.isStarred }),
+            },
+            { id: 'duplicate', label: t("notes.create_a_copy"), icon: <Copy size={13}/>, onSelect: () => void duplicateNote(note.id) },
+            {
+                id: 'archive',
+                label: note.isArchived ? t("common.unarchive") : t("navigation.archive"),
+                onSelect: () => void patchNote(note.id, { isArchived: !note.isArchived }),
+            },
+            ...folders.slice(0, 6).map<MenuItem>((folder, index) => ({
+                id: `move-${folder.id}`,
+                label: t("notes.move_to_value0", { value0: folder.name }),
+                icon: index === 0 ? <FolderInput size={13}/> : undefined,
+                separatorBefore: index === 0,
+                disabled: folder.id === note.folderId,
+                onSelect: () => void patchNote(note.id, { folderId: folder.id }),
+            })),
+            {
+                id: 'delete',
+                label: t("common.move_to_trash"),
+                icon: <Trash2 size={13}/>,
+                tone: 'danger',
+                separatorBefore: true,
+                onSelect: () => void deleteNote(note.id),
+            },
+        ];
+    const titleParts = splitByRanges(note.title || t("common.untitled_note"), highlight);
+    return (<>
+      <div id={`note-option-${note.id}`} role="option" aria-selected={active || selected} tabIndex={-1} data-note-id={note.id} draggable style={{ contentVisibility: 'auto', containIntrinsicSize: density === 'compact' ? 'auto 42px' : 'auto 72px' }} onDragStart={(e) => {
+            e.dataTransfer.setData('application/x-inkstone-note', note.id);
+            e.dataTransfer.effectAllowed = 'move';
+        }} onClick={(event) => {
+            if (event.metaKey || event.ctrlKey) {
+                toggleSelected(note.id, true);
+                return;
+            }
+            if (event.shiftKey) {
+                event.preventDefault();
+                onRangeSelect(note.id);
+                return;
+            }
+            void openNote(note.id);
+        }} onContextMenu={(event) => {
+            setMenuOpen(false);
+            menu.onContextMenu(event);
+        }} className={cn('group relative cursor-default rounded-[var(--r-md)] border border-transparent px-2.5 pr-11 transition-[background-color,border-color,box-shadow] duration-[var(--dur-fast)] md:pr-2.5', density === 'compact' ? 'py-[7px]' : 'py-2.5', selectionHighlighted
+            ? 'bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]/40'
+            : active
+                ? 'border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[var(--shadow-sm)]'
+                : 'hover:bg-[var(--bg-hover)]')}>
+        <div className="flex items-start gap-1.5">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              {note.isPinned && <Pin size={10} className="shrink-0 text-[var(--accent)]"/>}
+              <h3 className={cn('min-w-0 flex-1 truncate text-[13px] leading-snug', active
+            ? 'font-semibold text-[var(--accent)]'
+            : 'font-medium text-[var(--text-primary)]')}>
+                {titleParts.map((part, i) => part.hit ? (<mark key={i} className="ink-hit">
+                      {part.text}
+                    </mark>) : (<span key={i}>{part.text}</span>))}
+              </h3>
+              {note.isStarred && <Star size={10} className="shrink-0 fill-current text-[var(--warning)]"/>}
+            </div>
+
+            {density === 'comfortable' && note.excerpt && (<p className="truncate-2 mt-1 text-[11.5px] leading-[1.5] text-[var(--text-tertiary)]">
+                {note.excerpt}
+              </p>)}
+
+            <div className="mt-1.5 flex items-center gap-1.5 text-[10.5px] text-[var(--text-quaternary)]">
+              <span className="shrink-0 tabular">
+                {shortTime(note.deletedAt ?? note.updatedAt, now)}
+              </span>
+              {note.wordCount > 0 && (<>
+                  <span className="opacity-50">·</span>
+                  <span className="shrink-0 tabular">{note.wordCount}{t("common.words")}</span>
+                </>)}
+              {note.tags.length > 0 && density === 'comfortable' && (<span className="flex min-w-0 items-center gap-1 truncate">
+                  <span className="opacity-50">·</span>
+                  {note.tags.slice(0, 3).map((t) => (<span key={t} className="truncate text-[var(--text-tertiary)]">
+                      #{t}
+                    </span>))}
+                </span>)}
+            </div>
+          </div>
+        </div>
+        {breakpoint === 'mobile' && (<Tooltip label={t("common.more_actions")} side="left">
+            <IconButton ref={menuButtonRef} label={t("common.more_actions")} size="sm" onClick={(event) => {
+                  event.stopPropagation();
+                  menu.close();
+                  setMenuOpen(true);
+              }} className="absolute top-1.5 right-1.5">
+              <MoreHorizontal size={16}/>
+            </IconButton>
+          </Tooltip>)}
+      </div>
+
+      {menu.point && <Menu anchor={menu.point} open onClose={menu.close} items={items}/>}
+      <Menu anchor={menuButtonRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={items} align="end" width={240}/>
+    </>);
+});
+function BulkBar() {
+    const selectedIds = useUi((s) => s.selectedIds);
+    const setSelected = useUi((s) => s.setSelected);
+    const patchNote = useNotes((s) => s.patchNote);
+    const deleteNote = useNotes((s) => s.deleteNote);
+    const folders = useNotes((s) => s.folders);
+    const notes = useNotes((s) => s.notes);
+    const toast = useUi((s) => s.toast);
+    const folderRef = useRef<HTMLButtonElement>(null);
+    const [folderMenu, setFolderMenu] = useState(false);
+    const busyRef = useRef(false);
+    const [busy, setBusy] = useState(false);
+    const ids = selectedIds.filter((id) => notes[id]);
+    if (ids.length < 2)
+        return null;
+    const allStarred = ids.every((id) => notes[id]?.isStarred);
+    const clear = () => {
+        const currentActiveId = useUi.getState().activeNoteId;
+        setSelected(currentActiveId ? [currentActiveId] : []);
+    };
+    const performAll = async (fn: (id: string) => Promise<void>, label: string) => {
+        for (const id of ids)
+            await fn(id);
+        toast({ title: t("notes.value0_value1_notes", { value0: label, value1: ids.length }), tone: 'success' });
+        clear();
+    };
+    const runAll = async (task: () => Promise<void>) => {
+        if (busyRef.current)
+            return;
+        busyRef.current = true;
+        setBusy(true);
+        try {
+            await task();
+        }
+        catch (err) {
+            toast({ title: t("common.action_failed"), description: err instanceof Error ? err.message : String(err), tone: 'danger' });
+        }
+        finally {
+            busyRef.current = false;
+            setBusy(false);
+        }
+    };
+    const folderItems: MenuItem[] = [
+        {
+            id: 'none',
+            label: t("notes.remove_from_folder"),
+            disabled: busy,
+            onSelect: () => void runAll(() => performAll((id) => patchNote(id, { folderId: null }), t("notes.moved_out"))),
+        },
+        ...folders.map<MenuItem>((folder, index) => ({
+            id: folder.id,
+            label: folder.name,
+            separatorBefore: index === 0,
+            disabled: busy,
+            onSelect: () => void runAll(() => performAll((id) => patchNote(id, { folderId: folder.id }), t("notes.moved"))),
+        })),
+    ];
+    return (<div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center pb-3">
+      <div className="anim-rise pointer-events-auto flex items-center gap-1 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 pl-3 shadow-[var(--shadow-pop)]">
+        <span className="mr-1 text-[11.5px] whitespace-nowrap text-[var(--text-secondary)]">{t("notes.selected")}<span className="tabular font-medium">{ids.length}</span>{t("notes.notes")}</span>
+        <Tooltip label={allStarred ? t("common.remove_from_favorites") : t("navigation.favorites")}>
+          <IconButton label={t("navigation.favorites")} size="sm" disabled={busy} onClick={() => void runAll(() => performAll((id) => patchNote(id, { isStarred: !allStarred }), allStarred ? t("notes.removed_from_favorites") : t("notes.added_to_favorites")))}>
+            <Star size={13} className={allStarred ? 'fill-current' : undefined}/>
+          </IconButton>
+        </Tooltip>
+        <Tooltip label={t("notes.move_to_folder")}>
+          <IconButton label={t("notes.move_to_folder")} size="sm" ref={folderRef} disabled={busy} onClick={() => setFolderMenu(true)}>
+            <FolderInput size={13}/>
+          </IconButton>
+        </Tooltip>
+        <Tooltip label={t("navigation.archive")}>
+          <IconButton label={t("navigation.archive")} size="sm" disabled={busy} onClick={() => void runAll(() => performAll((id) => patchNote(id, { isArchived: true }), t("notes.archived")))}>
+            <Archive size={13}/>
+          </IconButton>
+        </Tooltip>
+        <Tooltip label={t("common.move_to_trash")}>
+          <IconButton label={t("common.move_to_trash")} size="sm" disabled={busy} className="text-[var(--text-tertiary)] hover:text-[var(--danger)]" onClick={() => void runAll(async () => {
+            const ok = await confirm({
+                title: t("notes.move_value0_notes_to_trash", { value0: ids.length }),
+                description: t("notes.restore_it_from_trash_at_any_time"),
+                confirmLabel: t("common.move_to_trash"),
+                tone: 'danger',
+            });
+            if (ok)
+                await performAll((id) => deleteNote(id), t("notes.deleted"));
+        })}>
+            <Trash2 size={13}/>
+          </IconButton>
+        </Tooltip>
+        <span className="mx-0.5 h-4 w-px bg-[var(--border-subtle)]"/>
+        <Tooltip label={t("notes.deselect")}>
+          <IconButton label={t("notes.deselect")} size="sm" disabled={busy} onClick={clear}>
+            <X size={13}/>
+          </IconButton>
+        </Tooltip>
+      </div>
+
+      <Menu anchor={folderRef} open={folderMenu} onClose={() => setFolderMenu(false)} items={folderItems}/>
+    </div>);
+}
+function ListEmpty({ view, filtering }: {
+    view: string;
+    filtering: boolean;
+}) {
+    const createNote = useNotes((s) => s.createNote);
+    const shortcut = (combo: string) => prettyCombo(combo).join('+');
+    if (filtering) {
+        return <Empty art="search" title={t("notes.no_matching_notes")} description={t("notes.try_another_search_or_press_shortcut_to_search_everywhere", { shortcut: shortcut('mod+k') })}/>;
+    }
+    const config: Record<string, {
+        art: 'notes' | 'starred' | 'trash' | 'archive' | 'folder' | 'tag';
+        title: string;
+        desc: string;
+    }> = {
+        all: { art: 'notes', title: t("notes.no_notes_yet"), desc: t("notes.press_shortcut_or_the_plus_button_to_write_your_first_note", { shortcut: shortcut('mod+n') }) },
+        recent: { art: 'notes', title: t("notes.nothing_has_been_edited_recently"), desc: t("notes.write_something_and_it_will_appear_here") },
+        starred: { art: 'starred', title: t("notes.no_favorites_yet"), desc: t("notes.right_click_a_note_or_press_shortcut_to_favorite_it", { shortcut: shortcut('mod+d') }) },
+        unfiled: { art: 'folder', title: t("notes.every_note_is_filed"), desc: t("notes.everything_is_neatly_organized") },
+        archived: { art: 'archive', title: t("notes.archive_is_empty"), desc: t("notes.keep_notes_here_when_you_want_them_out_of_the_way_but_not_deleted") },
+        trash: { art: 'trash', title: t("notes.trash_is_empty"), desc: t("notes.deleted_notes_remain_until_you_restore_or_clear_them") },
+        folder: { art: 'folder', title: t("notes.this_folder_is_still_empty"), desc: t("notes.drag_notes_in_or_create_new_ones_here") },
+        tag: { art: 'tag', title: t("notes.there_are_no_notes_with_this_tag"), desc: t("notes.write_tags_in_the_note_to_link_them_automatically") },
+    };
+    const item = config[view] ?? config.all!;
+    return (<Empty art={item.art} title={item.title} description={item.desc} action={view !== 'trash' && view !== 'archived' ? (<button type="button" onClick={() => void createNote()} className="inline-flex h-8 items-center gap-1.5 rounded-[var(--r-md)] border border-[var(--border-default)] px-3 text-[12.5px] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]">
+            <Plus size={13}/>{t("common.new_note")}</button>) : undefined}/>);
+}
+interface Group {
+    key: string;
+    label: string | null;
+    items: {
+        note: NoteSummary;
+        ranges: [
+            number,
+            number
+        ][];
+    }[];
+}
+function groupNotes(items: {
+    note: NoteSummary;
+    ranges: [
+        number,
+        number
+    ][];
+}[], sort: SortKey, isTrash: boolean, now: number): Group[] {
+    const pinned = items.filter((i) => i.note.isPinned);
+    const rest = items.filter((i) => !i.note.isPinned);
+    const groups: Group[] = [];
+    if (pinned.length)
+        groups.push({ key: 'pinned', label: t("notes.pin"), items: pinned });
+    if (sort === 'updated' || sort === 'created' || isTrash) {
+        let currentKey: string | null = null;
+        let bucket: Group | null = null;
+        for (const item of rest) {
+            const stamp = isTrash
+                ? (item.note.deletedAt ?? item.note.updatedAt)
+                : sort === 'created'
+                    ? item.note.createdAt
+                    : item.note.updatedAt;
+            const label = groupLabel(stamp, now);
+            if (label !== currentKey) {
+                currentKey = label;
+                bucket = { key: `${label}-${groups.length}`, label, items: [] };
+                groups.push(bucket);
+            }
+            bucket?.items.push(item);
+        }
+    }
+    else if (rest.length) {
+        groups.push({ key: 'rest', label: pinned.length ? t("notes.other") : null, items: rest });
+    }
+    return groups.filter((g) => g.items.length);
+}
+function useEmptyTrash() {
+    const pull = useNotes((s) => s.pull);
+    const toast = useUi((s) => s.toast);
+    const [emptyingTrash, setEmptyingTrash] = useState(false);
+    const busyRef = useRef(false);
+    const emptyTrash = async () => {
+        if (busyRef.current)
+            return;
+        busyRef.current = true;
+        setEmptyingTrash(true);
+        try {
+            const ok = await confirm({
+                title: t("common.empty_trash"),
+                description: t("notes.every_note_inside_will_be_permanently_deleted_and_cannot_be_recovered"),
+                confirmLabel: t("common.clear"),
+                tone: 'danger',
+            });
+            if (!ok)
+                return;
+            const result = await api.notes.emptyTrash();
+            const refreshed = await pull({ force: true }).then(() => true, () => false);
+            toast({
+                title: t("common.permanently_deleted_value0_notes", { value0: result.purged }),
+                description: refreshed ? undefined : t("settings.operation_completed_but_refresh_failed"),
+                tone: refreshed ? 'success' : 'warning',
+            });
+        }
+        catch (err) {
+            toast({ title: t("notes.clearing_failed"), description: err instanceof Error ? err.message : String(err), tone: 'danger' });
+        }
+        finally {
+            busyRef.current = false;
+            setEmptyingTrash(false);
+        }
+    };
+    return { emptyTrash, emptyingTrash };
+}

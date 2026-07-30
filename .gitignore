@@ -1,0 +1,56 @@
+# Dependencies and generated output
+node_modules/
+dist/
+coverage/
+.vite/
+*.tsbuildinfo
+worker-configuration.d.ts
+
+# Cloudflare local state and secrets
+.wrangler/
+.dev.vars
+.dev.vars.*
+
+# Environment files and private keys
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local databases and runtime data
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Local tools, indexes, editors and reference checkouts
+.claude/
+.codex/
+.codegraph/
+.upstream/
+.idea/
+.vscode/
+
+# Private project documentation
+/docs/
+
+# Test and temporary artifacts
+test-results/
+playwright-report/
+.tmp-*
+tmp/
+temp/
+*.log
+npm-debug.log*
+*.bak
+*.swp
+*.swo
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db

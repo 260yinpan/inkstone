@@ -1,0 +1,42 @@
+name = "inkstone"
+main = "src/worker/index.ts"
+compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
+
+[assets]
+directory = "./dist/client"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "inkstone-db"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "inkstone-files"
+
+[[durable_objects.bindings]]
+name = "SYNC_HUB"
+class_name = "SyncHub"
+
+[[durable_objects.bindings]]
+name = "CREDENTIAL_VAULT"
+class_name = "CredentialVault"
+
+[exports.SyncHub]
+type = "durable-object"
+storage = "sqlite"
+
+[exports.CredentialVault]
+type = "durable-object"
+storage = "sqlite"
+
+[triggers]
+crons = ["0 * * * *"]
+
+[vars]
+APP_NAME = "Inkstone"
+
+[observability]
+enabled = true

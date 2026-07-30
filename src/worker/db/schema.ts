@@ -1,0 +1,377 @@
+/** Defines the idempotent final D1 schema initialized by every Worker isolate. */
+import type { DatabaseState, Env } from '../env'
+
+
+export const SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS app_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    login TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    avatar_url TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'member',
+    settings TEXT NOT NULL DEFAULT '{}',
+    created_at INTEGER NOT NULL,
+    last_seen_at INTEGER NOT NULL
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS folders (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    parent_id TEXT,
+    name TEXT NOT NULL,
+    icon TEXT,
+    position REAL NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_folders_user ON folders(user_id, parent_id, position)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_unique_sibling
+     ON folders(user_id, IFNULL(parent_id, ''), lower(name)) WHERE deleted_at IS NULL`,
+
+  `CREATE TABLE IF NOT EXISTS notes (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    folder_id TEXT,
+    title TEXT NOT NULL DEFAULT '',
+    title_key TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    excerpt TEXT NOT NULL DEFAULT '',
+    rev INTEGER NOT NULL DEFAULT 1,
+    word_count INTEGER NOT NULL DEFAULT 0,
+    char_count INTEGER NOT NULL DEFAULT 0,
+    is_pinned INTEGER NOT NULL DEFAULT 0,
+    is_starred INTEGER NOT NULL DEFAULT 0,
+    is_archived INTEGER NOT NULL DEFAULT 0,
+    position REAL NOT NULL DEFAULT 0,
+    content_hash TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_notes_user_updated
+     ON notes(user_id, deleted_at, is_archived, updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(user_id, folder_id, updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_notes_starred ON notes(user_id, is_starred, updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_notes_trash ON notes(user_id, deleted_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_notes_title_key
+     ON notes(user_id, title_key, deleted_at, created_at, id)`,
+
+  `CREATE TABLE IF NOT EXISTS tags (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    color TEXT,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_unique ON tags(user_id, name)`,
+
+  `CREATE TABLE IF NOT EXISTS note_tags (
+    note_id TEXT NOT NULL,
+    tag_id TEXT NOT NULL,
+    PRIMARY KEY (note_id, tag_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag_id)`,
+
+  `CREATE TABLE IF NOT EXISTS links (
+    source_note_id TEXT NOT NULL,
+    target_key TEXT NOT NULL,
+    target_title TEXT NOT NULL,
+    target_note_id TEXT,
+    user_id TEXT NOT NULL,
+    PRIMARY KEY (source_note_id, target_key)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_links_target ON links(user_id, target_key)`,
+  `CREATE INDEX IF NOT EXISTS idx_links_target_note ON links(target_note_id)`,
+
+  `CREATE TABLE IF NOT EXISTS note_versions (
+    id TEXT PRIMARY KEY,
+    note_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_versions_note ON note_versions(note_id, created_at DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS attachments (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    note_id TEXT,
+    filename TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    width INTEGER,
+    height INTEGER,
+    storage TEXT NOT NULL CHECK (storage IN ('r2', 'kv')),
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_attachments_user ON attachments(user_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_attachments_note ON attachments(note_id)`,
+
+  `CREATE TABLE IF NOT EXISTS attachment_cleanup (
+    object_key TEXT PRIMARY KEY CHECK (object_key GLOB 'r2:?*' OR object_key GLOB 'kv:?*'),
+    user_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_attachment_cleanup_created
+     ON attachment_cleanup(created_at, object_key)`,
+
+  `CREATE TABLE IF NOT EXISTS import_mappings (
+    user_id TEXT NOT NULL,
+    entity TEXT NOT NULL CHECK (entity IN ('note', 'attachment')),
+    source_id TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, entity, source_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_import_mappings_target
+     ON import_mappings(user_id, entity, target_id)`,
+
+  `CREATE TABLE IF NOT EXISTS backup_targets (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    name TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    config TEXT NOT NULL DEFAULT '{}',
+    secret TEXT,
+    last_run_at INTEGER,
+    last_status TEXT,
+    last_error TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_targets_user ON backup_targets(user_id, created_at)`,
+
+  `CREATE TABLE IF NOT EXISTS backup_runs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    trigger TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at INTEGER NOT NULL,
+    finished_at INTEGER,
+    note_count INTEGER NOT NULL DEFAULT 0,
+    file_count INTEGER NOT NULL DEFAULT 0,
+    bytes INTEGER NOT NULL DEFAULT 0,
+    detail TEXT NOT NULL DEFAULT '[]'
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_runs_user ON backup_runs(user_id, started_at DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS shares (
+    slug TEXT PRIMARY KEY,
+    note_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    password_hash TEXT,
+    expires_at INTEGER,
+    views INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_shares_note ON shares(note_id)`,
+
+  `CREATE TABLE IF NOT EXISTS share_asset_sessions (
+    id TEXT PRIMARY KEY,
+    slug TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_share_asset_sessions_slug
+     ON share_asset_sessions(slug)`,
+  `CREATE INDEX IF NOT EXISTS idx_share_asset_sessions_expires
+     ON share_asset_sessions(expires_at)`,
+
+  `CREATE TABLE IF NOT EXISTS changes (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    entity TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    op TEXT NOT NULL,
+    at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_changes_user ON changes(user_id, seq)`,
+
+  `CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
+
+  `CREATE TABLE IF NOT EXISTS login_attempts (
+    key TEXT PRIMARY KEY,
+    fails INTEGER NOT NULL DEFAULT 0,
+    last_fail_at INTEGER NOT NULL,
+    locked_until INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_login_attempts_last_fail ON login_attempts(last_fail_at)`,
+]
+
+const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+  note_id UNINDEXED,
+  user_id UNINDEXED,
+  title,
+  body,
+  tokenize = "unicode61 remove_diacritics 2"
+)`
+
+const REQUIRED_USER_COLUMNS = [
+  'id',
+  'username',
+  'password_hash',
+  'login',
+  'name',
+  'avatar_url',
+  'role',
+  'settings',
+  'created_at',
+  'last_seen_at',
+] as const
+
+const REQUIRED_ATTACHMENT_COLUMNS = [
+  'id',
+  'user_id',
+  'note_id',
+  'filename',
+  'mime',
+  'size',
+  'sha256',
+  'width',
+  'height',
+  'storage',
+  'created_at',
+] as const
+
+const REQUIRED_TABLES = [
+  'app_meta',
+  'users',
+  'folders',
+  'notes',
+  'tags',
+  'note_tags',
+  'links',
+  'note_versions',
+  'attachments',
+  'attachment_cleanup',
+  'import_mappings',
+  'backup_targets',
+  'backup_runs',
+  'shares',
+  'share_asset_sessions',
+  'changes',
+  'sessions',
+  'login_attempts',
+] as const
+
+const REQUIRED_INDEXES = [
+  'idx_folders_user',
+  'idx_folders_unique_sibling',
+  'idx_notes_user_updated',
+  'idx_notes_folder',
+  'idx_notes_starred',
+  'idx_notes_trash',
+  'idx_notes_title_key',
+  'idx_tags_unique',
+  'idx_note_tags_tag',
+  'idx_links_target',
+  'idx_links_target_note',
+  'idx_versions_note',
+  'idx_attachments_user',
+  'idx_attachments_note',
+  'idx_attachment_cleanup_created',
+  'idx_import_mappings_target',
+  'idx_targets_user',
+  'idx_runs_user',
+  'idx_shares_note',
+  'idx_share_asset_sessions_slug',
+  'idx_share_asset_sessions_expires',
+  'idx_changes_user',
+  'idx_sessions_user',
+  'idx_sessions_expires',
+  'idx_login_attempts_last_fail',
+] as const
+
+
+const initializationCache = new WeakMap<D1Database, Promise<DatabaseState>>()
+
+export function initializeDatabase(env: Env): Promise<DatabaseState> {
+  const existing = initializationCache.get(env.DB)
+  if (existing) return existing
+
+  const pending = createSchema(env.DB).catch((error) => {
+    initializationCache.delete(env.DB)
+    throw error
+  })
+  initializationCache.set(env.DB, pending)
+  return pending
+}
+
+async function createSchema(db: D1Database): Promise<DatabaseState> {
+  const initialized = await db
+    .prepare(`SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'users'`)
+    .first<{ present: number }>()
+  if (!initialized) {
+    await db.batch(SCHEMA_STATEMENTS.map((statement) => db.prepare(statement)))
+  }
+  await assertFinalSchema(db)
+
+  try {
+    await db.prepare(FTS_STATEMENT).run()
+    return { ftsEnabled: true }
+  } catch (error) {
+    console.warn(
+      '[inkstone] The current database does not support FTS5; search will use LIKE:',
+      error instanceof Error ? error.message : error,
+    )
+    return { ftsEnabled: false }
+  }
+}
+
+async function assertFinalSchema(db: D1Database): Promise<void> {
+  const { results: tableRows } = await db
+    .prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`)
+    .all<{ name: string }>()
+  const tables = new Set(tableRows.map((row) => row.name))
+  const missingTables = REQUIRED_TABLES.filter((table) => !tables.has(table))
+  if (missingTables.length) {
+    throw new Error(
+      `The database does not match the current schema (missing tables: ${missingTables.join(', ')}). This pre-release build does not run migrations; clear the database and restart`,
+    )
+  }
+
+  const { results: indexRows } = await db
+    .prepare(`SELECT name FROM sqlite_master WHERE type = 'index'`)
+    .all<{ name: string }>()
+  const indexes = new Set(indexRows.map((row) => row.name))
+  const missingIndexes = REQUIRED_INDEXES.filter((index) => !indexes.has(index))
+  if (missingIndexes.length) {
+    throw new Error(
+      `The database does not match the current schema (missing indexes: ${missingIndexes.join(', ')}). This pre-release build does not run migrations; clear the database and restart`,
+    )
+  }
+
+  for (const [table, required] of [
+    ['users', REQUIRED_USER_COLUMNS],
+    ['attachments', REQUIRED_ATTACHMENT_COLUMNS],
+  ] as const) {
+    const { results } = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>()
+    const columns = new Set(results.map((row) => row.name))
+    const missing = required.filter((column) => !columns.has(column))
+    if (missing.length) {
+      throw new Error(
+        `The database does not match the current schema (${table} is missing ${missing.join(', ')}). This pre-release build does not run migrations; clear the database and restart`,
+      )
+    }
+  }
+}

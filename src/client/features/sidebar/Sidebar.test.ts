@@ -25,6 +25,15 @@ const mocks = vi.hoisted(() => ({
   createFolder: vi.fn(),
   updateSettings: vi.fn(),
   logout: vi.fn(),
+  user: null as null | {
+    id: string
+    login: string
+    name: string
+    avatarUrl: string
+    role: 'owner' | 'member'
+    createdAt: number
+    username: string
+  },
 }))
 
 vi.mock('../../store/ui', () => {
@@ -58,7 +67,7 @@ vi.mock('../../store/notes', () => {
 
 vi.mock('../../store/session', () => ({
   useSession: (selector: (state: unknown) => unknown) => selector({
-    user: null,
+    user: mocks.user,
     settings: { appearance: { theme: 'system' } },
     updateSettings: mocks.updateSettings,
     logout: mocks.logout,
@@ -95,6 +104,7 @@ beforeEach(() => {
   Object.assign(mocks.ui, { tag: null, activeNoteId: null })
   mocks.tree = [folderNode()]
   mocks.tags.length = 0
+  mocks.user = null
   mocks.refreshFolders.mockResolvedValue(undefined)
   mocks.createFolder.mockResolvedValue({ id: '01K11111111111111111111111' })
   mocks.patchFolder.mockResolvedValue({})
@@ -241,6 +251,33 @@ describe('folder action lifecycle', () => {
 })
 
 describe('sidebar details', () => {
+  it('shows a direct settings button instead of the account role while preserving the account menu', async () => {
+    mocks.user = {
+      id: 'owner',
+      login: 'owner',
+      name: 'Owner',
+      avatarUrl: '',
+      role: 'owner',
+      createdAt: 1,
+      username: 'owner',
+    }
+    const { root } = await renderSidebar()
+
+    expect(document.body.textContent).not.toContain('common.owner')
+    await act(async () => {
+      buttonByLabel('common.settings').click()
+      await flushPromises()
+    })
+    expect(mocks.ui.openPanel).toHaveBeenCalledWith('settings')
+
+    await act(async () => {
+      buttonByLabel('sidebar.account_and_settings').click()
+      await flushPromises()
+    })
+    expect(document.body.querySelector('[role="menu"]')).not.toBeNull()
+    await act(async () => root.unmount())
+  })
+
   it('does not render an empty tag section for unused tags', async () => {
     mocks.tags.push({ id: 'unused', name: 'unused', color: null, count: 0, createdAt: 1 })
     const { root } = await renderSidebar()

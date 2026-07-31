@@ -155,20 +155,24 @@ function SidebarAccount({ rail = false }: {
           <button ref={buttonRef} type="button" onClick={() => setMenuOpen(true)} aria-label={t("sidebar.account_and_settings")} className="rounded-full transition-transform duration-[var(--dur-fast)] hover:scale-105 active:scale-95">
             <Avatar src={user.avatarUrl} name={displayName} size={28}/>
           </button>
-        </Tooltip>) : (<button ref={buttonRef} type="button" onClick={() => setMenuOpen(true)} aria-label={t("sidebar.account_and_settings")} className="group flex h-11 w-full items-center gap-2.5 rounded-[var(--r-md)] px-2 text-left transition-colors hover:bg-[var(--bg-hover)]">
-          <Avatar src={user.avatarUrl} name={displayName} size={28}/>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[12.5px] font-semibold text-[var(--text-primary)]">
-              {displayName}
+        </Tooltip>) : (<div className="group flex h-11 w-full items-center rounded-[var(--r-md)] transition-colors hover:bg-[var(--bg-hover)]">
+          <button ref={buttonRef} type="button" onClick={() => setMenuOpen(true)} aria-label={t("sidebar.account_and_settings")} className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-l-[var(--r-md)] pl-2 text-left">
+            <Avatar src={user.avatarUrl} name={displayName} size={28}/>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[12.5px] font-semibold text-[var(--text-primary)]">
+                {displayName}
+              </span>
+              <span className="block truncate text-[10.5px] text-[var(--text-quaternary)]">
+                @{user.username}
+              </span>
             </span>
-            <span className="block truncate text-[10.5px] text-[var(--text-quaternary)]">
-              @{user.username}
-            </span>
-          </span>
-          <span className="shrink-0 text-[10.5px] text-[var(--text-quaternary)] group-hover:text-[var(--text-tertiary)]">
-            {user.role === 'owner' ? t("common.owner") : t("sidebar.member")}
-          </span>
-        </button>)}
+          </button>
+          <Tooltip label={t("common.settings")} side="top">
+            <IconButton label={t("common.settings")} size="sm" onClick={() => openPanel('settings')} className="mr-1 shrink-0 text-[var(--text-quaternary)] group-hover:text-[var(--text-tertiary)]">
+              <Settings size={14}/>
+            </IconButton>
+          </Tooltip>
+        </div>)}
 
       <Menu anchor={buttonRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={items} width={252}/>
     </>);

@@ -7,6 +7,9 @@ const failures = [];
 const usedKeys = new Set();
 const forbiddenCjk = /[\p{Script=Han}\u3000-\u303f\uff00-\uffef]/u;
 const visibleAttributes = new Set(['alt', 'aria-label', 'description', 'hint', 'label', 'placeholder', 'title']);
+const allowedHanFragments = new Map([
+    [path.resolve('README.md'), ['<a href="./README_ZH.md">\u4e2d\u6587</a>']],
+]);
 const english = readMessages(path.join(localeRoot, 'en-US.ts'), 'EN_US_MESSAGES');
 const chinese = readMessages(path.join(localeRoot, 'zh-CN.ts'), 'ZH_CN_MESSAGES');
 for (const key of english.keys()) {
@@ -114,10 +117,11 @@ function isTextSource(file) {
 }
 function rejectHan(file) {
     const source = fs.readFileSync(file, 'utf8');
-    const match = forbiddenCjk.exec(source);
+    const checked = (allowedHanFragments.get(file) ?? []).reduce((text, fragment) => text.replace(fragment, ' '.repeat(fragment.length)), source);
+    const match = forbiddenCjk.exec(checked);
     if (!match)
         return;
-    const before = source.slice(0, match.index);
+    const before = checked.slice(0, match.index);
     const line = before.split(/\r?\n/).length;
     const column = match.index - Math.max(before.lastIndexOf('\n'), before.lastIndexOf('\r'));
     failures.push(`${path.relative(process.cwd(), file)}:${line}:${column} Chinese text is allowed only in src/shared/locales/zh-CN.ts`);

@@ -22,6 +22,7 @@ import type {
   SyncResponse,
   Tag,
   TestConnectionResult,
+  UpdateCheckResponse,
   UserSettings,
 } from '@shared/types'
 import { publishBroadcast } from './db'
@@ -337,6 +338,10 @@ export const api = {
         return settings
       }),
     stats: () => request<Record<string, number>>('/api/settings/stats'),
+  },
+
+  update: {
+    check: () => request<UpdateCheckResponse>('/api/update', { timeoutMs: 10_000 }),
   },
 
   share: {

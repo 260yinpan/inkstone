@@ -8,6 +8,7 @@ import { Drawer } from '../../components/overlay';
 import { PANEL_WIDTHS, useUi } from '../../store/ui';
 import { useNotes } from '../../store/notes';
 import { useSession } from '../../store/session';
+import { useUpdate } from '../../store/update';
 import { Sidebar } from '../sidebar/Sidebar';
 import { NoteList } from '../list/NoteList';
 import { Workspace } from '../workspace/Workspace';
@@ -21,10 +22,17 @@ const GraphPanel = lazy(() => import('../graph/GraphPanel').then((m) => ({ defau
 const SharePanel = lazy(() => import('../share/SharePanel').then((m) => ({ default: m.SharePanel })));
 const VersionsPanel = lazy(() => import('../workspace/VersionsPanel').then((m) => ({ default: m.VersionsPanel })));
 const Lightbox = lazy(() => import('../preview/Lightbox').then((m) => ({ default: m.Lightbox })));
+const UpdateDialog = lazy(() => import('../update/UpdateDialog').then((m) => ({ default: m.UpdateDialog })));
 export function AppShell() {
     const breakpoint = useBreakpoint();
+    const role = useSession((s) => s.user?.role);
+    const checkForUpdates = useUpdate((s) => s.check);
     useSyncEngine();
     useGlobalHotkeys();
+    useEffect(() => {
+        if (role === 'owner')
+            void checkForUpdates();
+    }, [role, checkForUpdates]);
 
     useEffect(() => {
         useUi.setState({ outlineOpen: useSession.getState().settings.preview.showToc });
@@ -122,15 +130,22 @@ function OverlayHost() {
     const panel = useUi((s) => s.panel);
     const closePanel = useUi((s) => s.closePanel);
     const lightbox = useUi((s) => s.lightbox);
-    return (<Suspense fallback={null}>
-      {panel === 'command' && <CommandPalette onClose={closePanel}/>}
-      {panel === 'settings' && <SettingsPanel onClose={closePanel}/>}
-      {panel === 'shortcuts' && <ShortcutsPanel onClose={closePanel}/>}
-      {panel === 'graph' && <GraphPanel onClose={closePanel}/>}
-      {panel === 'share' && <SharePanel onClose={closePanel}/>}
-      {panel === 'versions' && <VersionsPanel onClose={closePanel}/>}
-      {lightbox && <Lightbox />}
-    </Suspense>);
+    const role = useSession((s) => s.user?.role);
+    const updateDialogOpen = useUpdate((s) => s.dialogOpen);
+    return (<>
+      <Suspense fallback={null}>
+        {panel === 'command' && <CommandPalette onClose={closePanel}/>}
+        {panel === 'settings' && <SettingsPanel onClose={closePanel}/>}
+        {panel === 'shortcuts' && <ShortcutsPanel onClose={closePanel}/>}
+        {panel === 'graph' && <GraphPanel onClose={closePanel}/>}
+        {panel === 'share' && <SharePanel onClose={closePanel}/>}
+        {panel === 'versions' && <VersionsPanel onClose={closePanel}/>}
+        {lightbox && <Lightbox />}
+      </Suspense>
+      {role === 'owner' && updateDialogOpen && (<Suspense fallback={null}>
+        <UpdateDialog />
+      </Suspense>)}
+    </>);
 }
 
 function useGlobalHotkeys(): void {

@@ -8,6 +8,7 @@ import { Avatar, IconButton, Logo, SectionLabel } from '../../components/primiti
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
 import { switchThemeWithTransition, useUi } from '../../store/ui';
 import { useSession } from '../../store/session';
+import { useUpdate } from '../../store/update';
 import { useFolderTree, useNavigationCounts, useNotes, type FolderNode } from '../../store/notes';
 import { t } from "../../lib/i18n";
 export function Sidebar({ collapsed = false, onCollapse, }: {
@@ -108,6 +109,7 @@ function SidebarAccount({ rail = false }: {
     const updateSettings = useSession((s) => s.updateSettings);
     const logout = useSession((s) => s.logout);
     const openPanel = useUi((s) => s.openPanel);
+    const updateAvailable = useUpdate((s) => s.available);
     const buttonRef = useRef<HTMLButtonElement>(null);
     const [menuOpen, setMenuOpen] = useState(false);
     if (!user)
@@ -119,7 +121,7 @@ function SidebarAccount({ rail = false }: {
         {
             id: 'settings',
             label: t("common.settings"),
-            icon: <Settings size={13}/>,
+            icon: <SettingsIcon size={13} showDot={user.role === 'owner' && updateAvailable}/>,
             combo: 'mod+,',
             onSelect: () => openPanel('settings'),
         },
@@ -169,13 +171,22 @@ function SidebarAccount({ rail = false }: {
           </button>
           <Tooltip label={t("common.settings")} side="top">
             <IconButton label={t("common.settings")} size="sm" onClick={() => openPanel('settings')} className="mr-1 shrink-0 text-[var(--text-quaternary)] group-hover:text-[var(--text-tertiary)]">
-              <Settings size={14}/>
+              <SettingsIcon size={14} showDot={user.role === 'owner' && updateAvailable}/>
             </IconButton>
           </Tooltip>
         </div>)}
 
       <Menu anchor={buttonRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={items} width={252}/>
     </>);
+}
+function SettingsIcon({ size, showDot }: {
+    size: number;
+    showDot: boolean;
+}) {
+    return (<span className="relative inline-flex">
+      <Settings size={size}/>
+      {showDot && (<span data-update-dot aria-hidden="true" className="absolute -top-1 -right-1 size-2 rounded-full border border-[var(--bg-sunken)] bg-[var(--danger)]"/>)}
+    </span>);
 }
 function ViewItem({ icon, label, view, count, active, onSelect, }: {
     icon: React.ReactNode;

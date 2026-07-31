@@ -1,7 +1,10 @@
 import type { AccentName, UserSettings, ViewKind } from './types'
+import { version as packageVersion } from '../../package.json'
 
-export const APP_VERSION = '0.1.0'
+export const APP_VERSION = packageVersion
 export const GITHUB_REPOSITORY_URL = 'https://github.com/shuaiplus/inkstone'
+export const GITHUB_PACKAGE_URL =
+  'https://raw.githubusercontent.com/shuaiplus/inkstone/refs/heads/main/package.json'
 export const CLIENT_HEADER = 'X-Inkstone-Client'
 export const SESSION_COOKIE = 'inkstone_session'
 

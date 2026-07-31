@@ -37,6 +37,17 @@ export interface SessionInfo {
   settings: UserSettings | null
 }
 
+export type UpdateCheckStatus = 'ok' | 'stale' | 'unavailable'
+
+export interface UpdateCheckResponse {
+  currentVersion: string
+  latestVersion: string | null
+  updateUrl: string | null
+  checkedAt: number | null
+  status: UpdateCheckStatus
+  cached: boolean
+}
+
 
 export type ThemePref = 'light' | 'dark' | 'system'
 export type AppLocale = 'zh-CN' | 'en-US'

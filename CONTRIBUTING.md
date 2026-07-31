@@ -34,6 +34,15 @@ npm run build
 
 Changes to Worker routes, persistence, synchronization, imports, exports, or backups should also run the isolated end-to-end suite described by `npm run test:e2e`.
 
+## Releases
+
+The root `package.json` is the only version source. The application imports its
+`version` field at build time, and deployed instances compare that embedded
+version with the official repository's `main` branch `package.json`. Set the
+field to a stable SemVer value such as `0.2.0` only when that version is ready
+to be announced to existing installations. Do not use a `v` prefix or a
+prerelease identifier.
+
 ## Pull requests
 
 Describe the user-visible outcome, important compatibility effects, security implications, and the exact checks you ran. Include screenshots for interface changes and explain narrow-screen behavior when layout is affected.

@@ -26,5 +26,5 @@
       "@shared/*": ["./src/shared/*"]
     }
   },
-  "include": ["src/worker/**/*", "src/shared/**/*"]
+  "include": ["src/worker/**/*", "src/shared/**/*", "package.json"]
 }

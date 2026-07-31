@@ -1,16 +1,22 @@
 import { useRef, useState } from 'react';
-import { GitFork, LogOut, Shield, UserRound } from 'lucide-react';
+import { ExternalLink, GitFork, LogOut, RefreshCw, Shield, UserRound } from 'lucide-react';
 import { GITHUB_REPOSITORY_URL } from '@shared/constants';
 import { fullTime } from '../../lib/time';
 import { Avatar, Badge, Button, Logo } from '../../components/primitives';
 import { SettingRow } from '../../components/form';
 import { confirm } from '../../components/overlay';
 import { useSession } from '../../store/session';
+import { useUpdate } from '../../store/update';
 import { t } from "../../lib/i18n";
 export function AboutSettings() {
     const user = useSession((s) => s.user);
     const site = useSession((s) => s.site);
     const logout = useSession((s) => s.logout);
+    const updateStatus = useUpdate((s) => s.status);
+    const updateInfo = useUpdate((s) => s.info);
+    const updateAvailable = useUpdate((s) => s.available);
+    const checkForUpdates = useUpdate((s) => s.check);
+    const openUpdatePage = useUpdate((s) => s.openUpdatePage);
     const loggingOutRef = useRef(false);
     const [loggingOut, setLoggingOut] = useState(false);
     const exit = async () => {
@@ -68,6 +74,33 @@ export function AboutSettings() {
           <div className="text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">{t("settings.to_add_users_open_registration_under_settings_account_they_can_then_crea")}</div>
         </div>
       </section>
+
+      {user?.role === 'owner' && (<section>
+        <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.deployment_updates")}</h3>
+        <SettingRow title={t("settings.current_version")}>
+          <Badge>{updateInfo?.currentVersion ?? site?.version ?? '—'}</Badge>
+        </SettingRow>
+        <SettingRow title={t("settings.latest_version")} description={updateInfo?.status === 'stale'
+            ? t("settings.update_cache_stale") : updateInfo?.checkedAt
+            ? `${t("settings.checked_at")} ${fullTime(updateInfo.checkedAt)}` : undefined}>
+          <Badge tone={updateAvailable ? 'warning' : updateInfo?.status === 'unavailable' ? 'neutral' : 'success'}>
+            {updateStatus === 'checking'
+              ? t("settings.checking_for_updates")
+              : updateInfo?.latestVersion ?? t("settings.update_check_unavailable")}
+          </Badge>
+        </SettingRow>
+        {!updateAvailable && updateInfo?.latestVersion && (<p className="mt-2 px-1 text-[11.5px] text-[var(--text-quaternary)]">
+          {t("settings.up_to_date")}
+        </p>)}
+        <div className="mt-3 flex flex-wrap justify-end gap-2">
+          <Button size="sm" variant="secondary" icon={<RefreshCw size={13}/>} loading={updateStatus === 'checking'} onClick={() => void checkForUpdates()}>
+            {t("settings.recheck_updates")}
+          </Button>
+          {updateInfo?.updateUrl && (<Button size="sm" variant="primary" icon={<ExternalLink size={13}/>} onClick={openUpdatePage}>
+            {t("settings.open_official_repository")}
+          </Button>)}
+        </div>
+      </section>)}
 
       <section className="flex items-center justify-between rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">
         <div className="flex items-center gap-2.5">

@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url'
 import type { Plugin, UserConfigFnPromise } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { inkstonePwa } from './pwa.config.ts'
 
 const r = (p: string) => fileURLToPath(new URL(p, import.meta.url))
 const ephemeralDevState = process.env.INKSTONE_EPHEMERAL_DEV === '1'
@@ -76,6 +77,7 @@ const config: UserConfigFnPromise = async ({ mode }) => ({
     react(),
     katexWoff2Only(),
     tailwindcss(),
+    inkstonePwa(),
     ...(mode === 'demo'
       ? []
       : [

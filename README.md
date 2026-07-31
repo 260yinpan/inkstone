@@ -31,7 +31,7 @@ Every new account automatically receives two standard starter notes, one in Chin
 | Markdown | Tables, task lists, footnotes, definition lists, callouts, tabs, **details blocks**, **math**, **Mermaid diagrams**, **syntax highlighting**, **Front Matter**, and Pandoc-style attributes |
 | Organization | Nested folders, inline tags, favorites, pinning, archive, trash, **wiki links**, backlinks, block references, note embeds, and a relationship graph |
 | Search | D1 FTS5 **full-text search** with Chinese indexing, filters, recent notes, and command-palette navigation |
-| Reliability | Browser-side cache, **offline write queue, optimistic concurrency control**, conflict copies, realtime notifications, and polling fallback |
+| Reliability | Installable PWA, offline app launch, browser-side cache, **offline write queue, optimistic concurrency control**, conflict copies, realtime notifications, and polling fallback |
 | Sharing | Public note links with optional access passwords and expiration dates |
 | Portability | JSON and ZIP exports, directly readable **Markdown**, attachment export, and **manual or scheduled WebDAV/S3 backups** |
 | Interface | **Desktop and mobile layouts**, **dark/light themes**, accent colors, Simplified Chinese, and English |

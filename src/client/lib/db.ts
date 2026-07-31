@@ -1,5 +1,5 @@
 import { clear as clearStore, createStore, del, get, getMany, set, setMany, update } from 'idb-keyval'
-import type { Folder, Note, NoteSummary, Tag } from '@shared/types'
+import type { Folder, Note, NoteSummary, PublicUser, SessionInfo, SiteInfo, Tag } from '@shared/types'
 import { CLIENT_DATABASE_NAME } from './runtime'
 
 
@@ -14,6 +14,7 @@ const KEY = {
   outbox: 'outbox',
   outboxReplayLease: 'outboxReplayLease',
   userId: 'userId',
+  session: 'session',
 } as const
 
 interface ShellData {
@@ -82,6 +83,28 @@ async function safeSet(key: string, value: unknown): Promise<void> {
 }
 
 export const localDb = {
+  async loadSession(): Promise<SessionInfo | null> {
+    const value = await safeGet<unknown>(KEY.session)
+    if (!isRecord(value) || !isPublicUser(value.user) || !isSiteInfo(value.site)) return null
+    if (value.settings !== null && !isRecord(value.settings)) return null
+    if (await safeGet<string>(KEY.userId) !== value.user.id) return null
+    return value as unknown as SessionInfo
+  },
+
+  async saveSession(info: SessionInfo): Promise<void> {
+    if (!info.user) return
+    try {
+      if ((await safeGet<string>(KEY.userId)) !== info.user.id) {
+        await clearLocalData()
+        await set(KEY.userId, info.user.id, store)
+      }
+      await set(KEY.session, info, store)
+    } catch {
+    }
+  },
+
+  clearSession: () => del(KEY.session, store).catch(() => {}),
+
   async loadShell(): Promise<{
     notes: NoteSummary[]
     folders: Folder[]
@@ -333,6 +356,29 @@ async function clearLocalData(): Promise<void> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isPublicUser(value: unknown): value is PublicUser {
+  if (!isRecord(value)) return false
+  return typeof value.id === 'string' &&
+    typeof value.login === 'string' &&
+    typeof value.name === 'string' &&
+    typeof value.avatarUrl === 'string' &&
+    (value.role === 'owner' || value.role === 'member') &&
+    isFiniteNumber(value.createdAt) &&
+    typeof value.username === 'string'
+}
+
+function isSiteInfo(value: unknown): value is SiteInfo {
+  if (!isRecord(value)) return false
+  return typeof value.name === 'string' &&
+    typeof value.initialized === 'boolean' &&
+    typeof value.registrationOpen === 'boolean' &&
+    typeof value.r2Enabled === 'boolean' &&
+    typeof value.kvEnabled === 'boolean' &&
+    (value.attachmentStorage === 'r2' || value.attachmentStorage === 'kv' || value.attachmentStorage === null) &&
+    typeof value.realtimeEnabled === 'boolean' &&
+    typeof value.version === 'string'
 }
 
 function isFiniteNumber(value: unknown): value is number {

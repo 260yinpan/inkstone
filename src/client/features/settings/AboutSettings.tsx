@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react';
-import { ExternalLink, GitFork, LogOut, RefreshCw, Shield, UserRound } from 'lucide-react';
+import { Download, ExternalLink, GitFork, LogOut, RefreshCw, Shield, UserRound } from 'lucide-react';
 import { GITHUB_REPOSITORY_URL } from '@shared/constants';
 import { fullTime } from '../../lib/time';
 import { Avatar, Badge, Button, Logo } from '../../components/primitives';
 import { SettingRow } from '../../components/form';
 import { confirm } from '../../components/overlay';
 import { useSession } from '../../store/session';
+import { usePwa } from '../../store/pwa';
 import { useUpdate } from '../../store/update';
 import { t } from "../../lib/i18n";
 export function AboutSettings() {
@@ -17,6 +18,10 @@ export function AboutSettings() {
     const updateAvailable = useUpdate((s) => s.available);
     const checkForUpdates = useUpdate((s) => s.check);
     const openUpdatePage = useUpdate((s) => s.openUpdatePage);
+    const installAvailable = usePwa((s) => s.installAvailable);
+    const installed = usePwa((s) => s.installed);
+    const installing = usePwa((s) => s.installing);
+    const install = usePwa((s) => s.install);
     const loggingOutRef = useRef(false);
     const [loggingOut, setLoggingOut] = useState(false);
     const exit = async () => {
@@ -80,8 +85,7 @@ export function AboutSettings() {
         <SettingRow title={t("settings.current_version")}>
           <Badge>{updateInfo?.currentVersion ?? site?.version ?? '—'}</Badge>
         </SettingRow>
-        <SettingRow title={t("settings.latest_version")} description={updateInfo?.status === 'stale'
-            ? t("settings.update_cache_stale") : updateInfo?.checkedAt
+        <SettingRow title={t("settings.latest_version")} description={updateInfo?.checkedAt
             ? `${t("settings.checked_at")} ${fullTime(updateInfo.checkedAt)}` : undefined}>
           <Badge tone={updateAvailable ? 'warning' : updateInfo?.status === 'unavailable' ? 'neutral' : 'success'}>
             {updateStatus === 'checking'
@@ -100,6 +104,15 @@ export function AboutSettings() {
             {t("settings.open_official_repository")}
           </Button>)}
         </div>
+      </section>)}
+
+      {(installAvailable || installed) && (<section>
+        <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("pwa.app_installation")}</h3>
+        <SettingRow title={t("pwa.install_inkstone")} description={t("pwa.install_description")}>
+          {installed
+            ? <Badge tone="success">{t("pwa.installed")}</Badge>
+            : <Button size="sm" variant="secondary" icon={<Download size={13}/>} loading={installing} onClick={() => void install()}>{t("pwa.install")}</Button>}
+        </SettingRow>
       </section>)}
 
       <section className="flex items-center justify-between rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">

@@ -3,9 +3,18 @@ import { DEFAULT_SETTINGS, mergeSettingsPatch } from '@shared/constants'
 import type { PublicUser, SessionInfo, SiteInfo, UserSettings } from '@shared/types'
 
 const mocks = vi.hoisted(() => ({
+  ApiError: class ApiError extends Error {
+    constructor(readonly status: number, message: string) {
+      super(message)
+    }
+    get isOffline() { return this.status === 0 }
+  },
   save: vi.fn<(patch: unknown) => Promise<UserSettings>>(),
   get: vi.fn<() => Promise<UserSettings>>(),
   clear: vi.fn(async () => undefined),
+  clearSession: vi.fn(async () => undefined),
+  loadSession: vi.fn<() => Promise<SessionInfo | null>>(),
+  saveSession: vi.fn<(info: SessionInfo) => Promise<void>>(async () => undefined),
   updateProfile: vi.fn<(patch: { name?: string; avatarUrl?: string }) => Promise<PublicUser>>(),
   session: vi.fn<() => Promise<SessionInfo>>(),
   login: vi.fn<(username: string, password: string) => Promise<SessionInfo>>(),
@@ -24,11 +33,16 @@ vi.mock('../lib/api', () => ({
     },
     logout: mocks.logout,
   },
-  ApiError: class ApiError extends Error {},
+  ApiError: mocks.ApiError,
 }))
 
 vi.mock('../lib/db', () => ({
-  localDb: { clear: mocks.clear },
+  localDb: {
+    clear: mocks.clear,
+    clearSession: mocks.clearSession,
+    loadSession: mocks.loadSession,
+    saveSession: mocks.saveSession,
+  },
 }))
 
 import { useSession } from './session'
@@ -74,6 +88,7 @@ beforeEach(() => {
     authError: null,
   })
   mocks.logout.mockResolvedValue({ ok: true })
+  mocks.loadSession.mockResolvedValue(null)
 })
 
 afterEach(() => {

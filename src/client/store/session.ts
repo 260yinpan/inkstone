@@ -37,6 +37,8 @@ let settingsUserId: string | null = null
 let settingsRequestSequence = 0
 let sessionRequestSequence = 0
 let logoutPromise: Promise<void> | null = null
+let sessionCacheTask: Promise<void> = Promise.resolve()
+let sessionCacheEpoch = 0
 
 export const useSession = create<SessionState>((set, get) => ({
   status: 'loading',
@@ -50,9 +52,19 @@ export const useSession = create<SessionState>((set, get) => ({
     try {
       const info = await api.session()
       if (sequence !== sessionRequestSequence) return
+      await persistSession(info)
+      if (sequence !== sessionRequestSequence) return
       adopt(info, set)
     } catch (err) {
       if (sequence !== sessionRequestSequence) return
+      if (err instanceof ApiError && err.isOffline) {
+        const cached = await localDb.loadSession()
+        if (sequence !== sessionRequestSequence) return
+        if (cached?.user) {
+          adopt(cached, set)
+          return
+        }
+      }
       set({
         status: 'anonymous',
         authError: err instanceof ApiError ? err.message : t("session.could_not_connect_to_the_server"),
@@ -64,12 +76,16 @@ export const useSession = create<SessionState>((set, get) => ({
     const sequence = ++sessionRequestSequence
     const info = await api.auth.login(username, password)
     if (sequence !== sessionRequestSequence) return
+    await persistSession(info)
+    if (sequence !== sessionRequestSequence) return
     adopt(info, set)
   },
 
   async passwordRegister(username, password) {
     const sequence = ++sessionRequestSequence
     const info = await api.auth.register(username, password)
+    if (sequence !== sessionRequestSequence) return
+    await persistSession(info)
     if (sequence !== sessionRequestSequence) return
     adopt(info, set)
   },
@@ -78,6 +94,8 @@ export const useSession = create<SessionState>((set, get) => ({
   async refresh() {
     const sequence = ++sessionRequestSequence
     const info = await api.session()
+    if (sequence !== sessionRequestSequence) return
+    await persistSession(info)
     if (sequence !== sessionRequestSequence) return
     adopt(info, set)
   },
@@ -91,6 +109,7 @@ export const useSession = create<SessionState>((set, get) => ({
     const settings = localPatch ? mergeSettingsPatch(remote, localPatch) : remote
     set({ settings })
     syncAppearanceToDom(settings)
+    cacheCurrentSession(get())
   },
 
   async updateProfile(patch) {
@@ -105,6 +124,7 @@ export const useSession = create<SessionState>((set, get) => ({
           avatarUrl: patch.avatarUrl === undefined ? current.avatarUrl : user.avatarUrl,
         },
       })
+      cacheCurrentSession(get())
     }
     return user
   },
@@ -112,9 +132,12 @@ export const useSession = create<SessionState>((set, get) => ({
   async logout() {
     if (logoutPromise) return logoutPromise
     sessionRequestSequence++
+    sessionCacheEpoch++
+    const pendingSessionCache = sessionCacheTask
     resetSettingsPersistence(null)
     const task = (async () => {
       await api.logout().catch(() => {})
+      await pendingSessionCache.catch(() => {})
       await localDb.clear()
       set({ status: 'anonymous', user: null, settings: DEFAULT_SETTINGS })
       location.reload()
@@ -131,6 +154,7 @@ export const useSession = create<SessionState>((set, get) => ({
     const next = mergeSettingsPatch(get().settings, patch)
     set({ settings: next })
     syncAppearanceToDom(next)
+    cacheCurrentSession(get())
     pendingSettingsPatch = mergeSettingsPatches(pendingSettingsPatch, patch)
     pendingSettingsShouldNotify ||= !options?.silent
 
@@ -165,6 +189,7 @@ async function flushSettingsPatch(set: SessionSetter, get: () => SessionState): 
         : saved
       set({ settings })
       syncAppearanceToDom(settings)
+      cacheCurrentSession(get())
     }
   } catch (err) {
     if (epoch !== settingsEpoch || token !== settingsSaveToken) return
@@ -251,6 +276,29 @@ function adopt(info: SessionInfo, set: (partial: Partial<SessionState>) => void)
     authError: null,
   })
   if (info.user) syncAppearanceToDom(settings)
+}
+
+async function persistSession(info: SessionInfo): Promise<void> {
+  if (info.user) await queueSessionCache(info)
+  else {
+    sessionCacheEpoch++
+    await sessionCacheTask.catch(() => {})
+    await localDb.clearSession()
+  }
+}
+
+function cacheCurrentSession(state: SessionState): void {
+  if (!state.user || !state.site) return
+  void queueSessionCache({ user: state.user, site: state.site, settings: state.settings })
+}
+
+function queueSessionCache(info: SessionInfo): Promise<void> {
+  const epoch = sessionCacheEpoch
+  const task = sessionCacheTask.then(async () => {
+    if (epoch === sessionCacheEpoch) await localDb.saveSession(info)
+  })
+  sessionCacheTask = task.catch(() => {})
+  return task
 }
 
 

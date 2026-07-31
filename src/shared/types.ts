@@ -37,7 +37,7 @@ export interface SessionInfo {
   settings: UserSettings | null
 }
 
-export type UpdateCheckStatus = 'ok' | 'stale' | 'unavailable'
+export type UpdateCheckStatus = 'ok' | 'unavailable'
 
 export interface UpdateCheckResponse {
   currentVersion: string
@@ -45,7 +45,6 @@ export interface UpdateCheckResponse {
   updateUrl: string | null
   checkedAt: number | null
   status: UpdateCheckStatus
-  cached: boolean
 }
 
 

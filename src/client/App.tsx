@@ -5,6 +5,7 @@ import { Spinner } from './components/primitives'
 import { LoginPage } from './features/auth/LoginPage'
 import { dismissBootScreen } from './lib/boot'
 import { t, useLocale } from './lib/i18n'
+import { initializePwa } from './store/pwa'
 import { useSession, watchSystemTheme } from './store/session'
 
 const AppShell = lazy(() =>
@@ -30,6 +31,10 @@ export function App() {
   }, [load, shareSlug])
 
   useEffect(() => watchSystemTheme(), [])
+
+  useEffect(() => {
+    initializePwa()
+  }, [])
 
   useEffect(() => {
     if (shareSlug || status !== 'loading') dismissBootScreen()

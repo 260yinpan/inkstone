@@ -12,5 +12,6 @@ updateRoutes.get('/', async (c) => {
   if (c.get('user').role !== 'owner') {
     throw ApiError.forbidden('Only the owner can check deployment updates')
   }
-  return c.json(await checkRepositoryVersion(c.env.DB))
+  c.header('Cache-Control', 'no-store')
+  return c.json(await checkRepositoryVersion())
 })

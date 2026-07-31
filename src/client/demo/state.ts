@@ -111,7 +111,7 @@ export function refreshNote(note: Note, content: string, title?: string): Note {
   return {
     ...note,
     content,
-    title: title?.trim() || deriveTitle(content),
+    title: title === undefined ? note.title : title.trim(),
     excerpt: deriveExcerpt(content),
     tags: sortTagNames(extractTags(content)),
     wordCount: counted.words,

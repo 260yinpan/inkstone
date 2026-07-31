@@ -746,6 +746,7 @@ export const ZH_CN_MESSAGES = {
     "workspace.layout": "布局",
     "workspace.link": "链接",
     "workspace.loading_note_content": "正在载入笔记正文",
+    "workspace.note_title": "笔记标题",
     "workspace.math": "公式",
     "workspace.mermaid_diagram": "Mermaid 图表",
     "workspace.more_blocks": "更多块",

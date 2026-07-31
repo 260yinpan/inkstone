@@ -4,6 +4,7 @@ import { ArrowLeft, Columns2, Eye, History, Link as LinkIcon, ListTree, MoreHori
 import { cn } from '../../lib/cn';
 import { api } from '../../lib/api';
 import { readingMinutes } from '@shared/markdown-utils';
+import { LIMITS } from '@shared/constants';
 import type { EditorLayout } from '@shared/types';
 import { fullTime } from '../../lib/time';
 import { useBreakpoint, useRelativeTime } from '../../lib/hooks';
@@ -37,6 +38,7 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
     const settings = useSession((s) => s.settings);
     const updateSettings = useSession((s) => s.updateSettings);
     const editContent = useNotes((s) => s.editContent);
+    const editTitle = useNotes((s) => s.editTitle);
     const createNote = useNotes((s) => s.createNote);
     const patchNote = useNotes((s) => s.patchNote);
     const tags = useNotes((s) => s.tags);
@@ -53,6 +55,7 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
     const containerRef = useRef<HTMLDivElement>(null);
     const previewScrollerRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const titleInputRef = useRef<HTMLInputElement>(null);
     const moreButtonRef = useRef<HTMLButtonElement>(null);
     const [view, setView] = useState<EditorView | null>(null);
     const [headings, setHeadings] = useState<Heading[]>([]);
@@ -162,7 +165,12 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
     useEffect(() => {
         if (!note || !view)
             return;
-        const frame = window.requestAnimationFrame(() => view.focus());
+        const frame = window.requestAnimationFrame(() => {
+            if (!note.title && !content)
+                titleInputRef.current?.focus();
+            else
+                view.focus();
+        });
         return () => window.cancelAnimationFrame(frame);
     }, [note?.id, view]);
     if (!note)
@@ -193,10 +201,23 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
               <ArrowLeft size={16}/>
             </IconButton>
           </Tooltip>)}
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <h1 className="min-w-0 truncate text-[13.5px] font-medium tracking-[-0.01em] text-[var(--text-primary)]">
-            {note.title || t("common.untitled_note")}
-          </h1>
+        <div className="flex min-w-0 flex-1 items-center gap-1">
+          <input
+            ref={titleInputRef}
+            type="text"
+            value={note.title}
+            maxLength={LIMITS.titleMaxLength}
+            aria-label={t("workspace.note_title")}
+            placeholder={t("common.untitled_note")}
+            className="h-8 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 text-[14px] font-semibold tracking-[-0.01em] text-[var(--text-primary)] outline-none transition-colors placeholder:font-medium placeholder:text-[var(--text-quaternary)] hover:border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] focus:border-[var(--accent)] focus:bg-[var(--bg-surface)]"
+            onChange={(event) => editTitle(note.id, event.target.value)}
+            onBlur={(event) => editTitle(note.id, event.currentTarget.value.trim())}
+            onKeyDown={(event) => {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                view?.focus();
+            }}
+          />
           {note.isStarred && <Star size={11} className="shrink-0 fill-current text-[var(--warning)]"/>}
           <span className="hidden shrink-0 text-[11px] text-[var(--text-quaternary)] md:inline">
             {updatedTime}

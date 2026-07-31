@@ -14,7 +14,14 @@ const mocks = vi.hoisted(() => ({
   listFolders: vi.fn(),
   listTags: vi.fn(),
   setContent: vi.fn(async () => undefined),
-  getContent: vi.fn<() => Promise<{ content: string; rev: number; updatedAt: number; writeId?: string } | undefined>>(async () => undefined),
+  getContent: vi.fn<() => Promise<{
+    content: string
+    rev: number
+    updatedAt: number
+    writeId?: string
+    pendingTitle?: string
+    contentDirty?: boolean
+  } | undefined>>(async () => undefined),
   scheduleShellSave: vi.fn(),
   dropContent: vi.fn(async () => undefined),
   getOutbox: vi.fn<() => Promise<OutboxItem[]>>(async () => []),
@@ -94,7 +101,7 @@ vi.mock('../lib/api', () => {
   }
 })
 
-import { acknowledgeOutboxBaseAdvanced, useNotes } from './notes'
+import { acknowledgeOutboxBaseAdvanced, acknowledgeOutboxResult, useNotes } from './notes'
 import { useSession } from './session'
 import { useUi } from './ui'
 import { ApiError } from '../lib/api'
@@ -216,6 +223,103 @@ afterEach(async () => {
 })
 
 describe('ordered note mutations', () => {
+  it('persists a custom title with the latest body through the offline journal', async () => {
+    const initial = note({ id: 'custom-title' })
+    const content = '# A heading that is not the title'
+    mocks.patch.mockResolvedValueOnce(note({
+      ...initial,
+      title: 'My custom title',
+      content,
+      rev: 2,
+      updatedAt: 2,
+    }))
+    useNotes.setState({ notes: { [initial.id]: initial }, contents: { [initial.id]: initial.content } })
+
+    useNotes.getState().editTitle(initial.id, 'My custom title')
+    useNotes.getState().editContent(initial.id, content)
+
+    expect(useNotes.getState().notes[initial.id]?.title).toBe('My custom title')
+    await useNotes.getState().replayPending()
+
+    expect(mocks.patch).toHaveBeenCalledWith(initial.id, {
+      rev: 1,
+      title: 'My custom title',
+      content,
+    })
+    expect(useNotes.getState().notes[initial.id]?.title).toBe('My custom title')
+    expect(useNotes.getState().contents[initial.id]).toBe(content)
+  })
+
+  it('queues an explicitly cleared title instead of falling back to the body heading', async () => {
+    const initial = note({ id: 'clear-title', title: 'Old custom title' })
+    mocks.patch.mockResolvedValueOnce(note({ ...initial, title: '', rev: 2, updatedAt: 2 }))
+    useNotes.setState({ notes: { [initial.id]: initial }, contents: { [initial.id]: initial.content } })
+
+    useNotes.getState().editTitle(initial.id, '')
+    await useNotes.getState().replayPending()
+
+    expect(mocks.patch).toHaveBeenCalledWith(initial.id, {
+      rev: 1,
+      title: '',
+    })
+    expect(useNotes.getState().notes[initial.id]?.title).toBe('')
+  })
+
+  it('rebases a title-only edit without overwriting a newer remote body', async () => {
+    const initial = note({ id: 'title-only-rebase' })
+    const remote = note({ ...initial, rev: 2, content: '# Remote body', updatedAt: 2 })
+    const saved = note({ ...remote, rev: 3, title: 'Local title', updatedAt: 3 })
+    mocks.patch
+      .mockRejectedValueOnce(new ApiError(409, 'conflict', 'conflict', { server: remote }))
+      .mockResolvedValueOnce(saved)
+    useNotes.setState({ notes: { [initial.id]: initial }, contents: { [initial.id]: initial.content } })
+
+    useNotes.getState().editTitle(initial.id, 'Local title')
+    await useNotes.getState().replayPending()
+
+    expect(mocks.patch.mock.calls).toEqual([
+      [initial.id, { rev: 1, title: 'Local title' }],
+      [initial.id, { rev: 2, title: 'Local title', preserveVersion: true }],
+    ])
+    expect(useNotes.getState().notes[initial.id]?.title).toBe('Local title')
+    expect(useNotes.getState().contents[initial.id]).toBe('# Remote body')
+  })
+
+  it('accepts a foreign-tab title save with the newer remote body and normalized title', async () => {
+    const queue = installMemoryOutbox()
+    const initial = note({ id: 'foreign-title-result' })
+    const saved = note({
+      ...initial,
+      title: 'Local title',
+      content: '# Remote body',
+      rev: 3,
+      updatedAt: 3,
+    })
+    useNotes.setState({ notes: { [initial.id]: initial }, contents: { [initial.id]: initial.content } })
+
+    useNotes.getState().editTitle(initial.id, '  Local title  ')
+    await vi.waitFor(() => expect(queue).toHaveLength(1))
+    const pending = queue[0]!
+    queue.splice(0, queue.length)
+
+    acknowledgeOutboxResult({
+      type: 'outbox-result',
+      clientId: 'foreign-client',
+      targetClientId: 'test-client',
+      noteId: initial.id,
+      writeId: pending.writeId,
+      outcome: 'saved',
+      rev: saved.rev,
+      updatedAt: saved.updatedAt,
+      savedTitle: saved.title,
+      savedNote: saved,
+    })
+
+    expect(useNotes.getState().notes[initial.id]).toMatchObject({ title: 'Local title', rev: 3 })
+    expect(useNotes.getState().contents[initial.id]).toBe('# Remote body')
+    expect(useNotes.getState().saveStatus).toBe('synced')
+  })
+
   it('uses one network writer while rapid edit and undo overlap a queue replay', async () => {
     installMemoryOutbox()
     const firstSave = deferred<Note>()
@@ -306,7 +410,7 @@ describe('ordered note mutations', () => {
       clientId: 'old-client',
       writeId: 'silent-write',
       noteId: initial.id,
-      payload: { content: saved.content, rev: 1 },
+      payload: { content: saved.content, contentDirty: true, rev: 1 },
       attempts: 0,
       createdAt: 1,
     })
@@ -317,6 +421,36 @@ describe('ordered note mutations', () => {
 
     expect(queue).toEqual([])
     expect(useUi.getState().toasts).toEqual([])
+  })
+
+  it('recreates a missing title-only journal from the durable cache after reload', async () => {
+    const initial = note({ id: 'cached-title-recovery' })
+    const saved = note({ ...initial, title: 'Recovered title', rev: 2, updatedAt: 2 })
+    mocks.getContent.mockResolvedValueOnce({
+      content: initial.content,
+      contentDirty: false,
+      pendingTitle: saved.title,
+      rev: 1,
+      updatedAt: 2,
+      writeId: 'cached-title-write',
+    })
+    mocks.patch.mockResolvedValueOnce(saved)
+    useNotes.setState({ notes: { [initial.id]: initial }, contents: {}, online: false })
+
+    await useNotes.getState().openNote(initial.id)
+
+    expect(useNotes.getState().notes[initial.id]?.title).toBe('Recovered title')
+    expect(mocks.enqueueOutbox).toHaveBeenCalledWith(expect.objectContaining({
+      payload: {
+        content: initial.content,
+        contentDirty: false,
+        rev: 1,
+        title: 'Recovered title',
+      },
+    }))
+
+    await useNotes.getState().flush({ immediate: true })
+    expect(mocks.patch).toHaveBeenCalledWith(initial.id, { rev: 1, title: 'Recovered title' })
   })
 
   it('converges after a long burst of edit and undo requests without changing note identity', async () => {
@@ -381,7 +515,7 @@ describe('ordered note mutations', () => {
       clientId: 'test-client',
       writeId: 'cached-write',
       noteId: initial.id,
-      payload: { content: saved.content, rev: 1 },
+      payload: { content: saved.content, contentDirty: true, rev: 1 },
     }))
     expect(useNotes.getState()).toMatchObject({
       contents: { [initial.id]: saved.content },
@@ -426,7 +560,7 @@ describe('ordered note mutations', () => {
     expect(recovery).toMatchObject({
       id: `patch:test-client:${initial.id}`,
       writeId: corrupt.writeId,
-      payload: { content: '# Recoverable cache', rev: 1 },
+      payload: { content: '# Recoverable cache', contentDirty: true, rev: 1 },
     })
     expect(mocks.enqueueOutbox.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.completeOutboxItem.mock.invocationCallOrder[0]!,

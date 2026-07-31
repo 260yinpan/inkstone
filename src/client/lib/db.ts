@@ -1,5 +1,5 @@
 import { clear as clearStore, createStore, del, get, getMany, set, setMany, update } from 'idb-keyval'
-import type { Folder, NoteSummary, Tag } from '@shared/types'
+import type { Folder, Note, NoteSummary, Tag } from '@shared/types'
 import { CLIENT_DATABASE_NAME } from './runtime'
 
 
@@ -43,6 +43,8 @@ export interface CachedNoteContent {
   rev: number
   updatedAt: number
   writeId?: string
+  pendingTitle?: string
+  contentDirty?: boolean
 }
 
 function normalizeOutbox(value: unknown): OutboxItem[] {
@@ -149,7 +151,9 @@ export const localDb = {
       cached.rev! < 1 ||
       typeof cached.updatedAt !== 'number' ||
       !Number.isFinite(cached.updatedAt) ||
-      (cached.writeId !== undefined && typeof cached.writeId !== 'string')
+      (cached.writeId !== undefined && typeof cached.writeId !== 'string') ||
+      (cached.pendingTitle !== undefined && typeof cached.pendingTitle !== 'string') ||
+      (cached.contentDirty !== undefined && typeof cached.contentDirty !== 'boolean')
     ) {
       return undefined
     }
@@ -407,6 +411,8 @@ export type BroadcastPayload =
       recoveryReason?: 'conflict' | 'deleted'
       rev?: number
       updatedAt?: number
+      savedTitle?: string
+      savedNote?: Note
       copyId?: string
     }
 

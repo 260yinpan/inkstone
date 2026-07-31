@@ -389,10 +389,7 @@ async function importBundle(
         continue
       }
 
-      const noteTitle =
-        typeof note.title === 'string' && note.title.trim()
-          ? truncateText(note.title.trim(), LIMITS.titleMaxLength)
-          : deriveTitle(content)
+      const noteTitle = importedBundleTitle(note.title, content)
       const sourceId = isValidId(note.id) ? note.id : undefined
       const importedCreatedAt = validTimestamp(note.createdAt)
       const importedUpdatedAt = validTimestamp(note.updatedAt)
@@ -828,7 +825,7 @@ async function importMarkdown(
   const folderId = dir.length ? await ensureFolderPath(c.env.DB, userId, dir.join('/'), ctx) : null
 
   const filename = path.split('/').pop() ?? path
-  const title = meta.title || deriveTitle(text, filename.replace(/\.(md|markdown|txt)$/i, ''))
+  const title = importedMarkdownTitle(meta, text, filename.replace(/\.(md|markdown|txt)$/i, ''))
 
   await insertNote(
     c,
@@ -886,7 +883,7 @@ async function updateImportedNote(
   if (!current) return 'missing'
   if (!importedUpdatedAt || current.updated_at >= importedUpdatedAt) return 'skipped'
 
-  const title = truncateText(input.title.trim(), LIMITS.titleMaxLength) || deriveTitle(input.content)
+  const title = truncateText(input.title.trim(), LIMITS.titleMaxLength)
   const { words, chars } = countText(input.content)
   const hash = await sha256Hex(input.content)
   const nextRev = current.rev + 1
@@ -997,8 +994,7 @@ async function insertNote(
   const deleted = validTimestamp(input.deletedAt) || null
   const position = finiteNumber(input.position) ?? created
   const { words, chars } = countText(input.content)
-  const title =
-    truncateText(input.title.trim(), LIMITS.titleMaxLength) || deriveTitle(input.content)
+  const title = truncateText(input.title.trim(), LIMITS.titleMaxLength)
 
   const hash = await sha256Hex(input.content)
   let inserted = false
@@ -1264,6 +1260,22 @@ export function parseImportConflict(value: unknown): ImportConflict {
   if (value === null || value === undefined) return 'newer'
   if (isImportConflict(value)) return value
   throw ApiError.badRequest('conflict must be skip, newer, or duplicate')
+}
+
+export function importedBundleTitle(title: unknown, content: string): string {
+  return typeof title === 'string'
+    ? truncateText(title.trim(), LIMITS.titleMaxLength)
+    : deriveTitle(content)
+}
+
+export function importedMarkdownTitle(
+  meta: Record<string, string>,
+  content: string,
+  filenameFallback: string,
+): string {
+  return Object.prototype.hasOwnProperty.call(meta, 'title')
+    ? truncateText(meta.title!.trim(), LIMITS.titleMaxLength)
+    : deriveTitle(content, filenameFallback)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

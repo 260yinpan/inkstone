@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sliceText, truncateText, utf8ByteLength } from './text-utils'
+import { duplicateNoteTitle, sliceText, truncateText, utf8ByteLength } from './text-utils'
 
 describe('Unicode-safe text slicing', () => {
   it('never introduces an unpaired surrogate at a truncation boundary', () => {
@@ -21,5 +21,16 @@ describe('Unicode-safe text slicing', () => {
 
   it('reports storage sizes in UTF-8 bytes', () => {
     expect(utf8ByteLength(`A\u{1f600}\u4e2d`)).toBe(8)
+  })
+})
+
+describe('duplicate note titles', () => {
+  it('gives an untitled note a clean copy title', () => {
+    expect(duplicateNoteTitle('', 512)).toBe('Untitled note copy')
+  })
+
+  it('trims the source title and preserves the copy suffix within the limit', () => {
+    expect(duplicateNoteTitle('  Project  ', 512)).toBe('Project copy')
+    expect(duplicateNoteTitle('abcdefghij', 10)).toBe('abcde copy')
   })
 })

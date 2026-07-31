@@ -18,6 +18,17 @@ export function truncateText(value: string, maxLength: number): string {
   return sliceText(value, 0, limit)
 }
 
+export function duplicateNoteTitle(
+  title: string,
+  maxLength: number,
+  fallback = 'Untitled note',
+  suffix = ' copy',
+): string {
+  const normalizedSuffix = truncateText(suffix, maxLength)
+  const base = title.trim() || fallback
+  return truncateText(base, Math.max(0, maxLength - normalizedSuffix.length)) + normalizedSuffix
+}
+
 const utf8Encoder = new TextEncoder()
 
 export function utf8ByteLength(value: string): number {

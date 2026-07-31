@@ -265,7 +265,7 @@ async function renderShareShell(
 
   const siteName = c.env.APP_NAME || 'Inkstone'
   const expired = row?.expires_at ? row.expires_at < Date.now() : false
-  const title = row && !expired ? row.title : "Content unavailable"
+  const title = row && !expired ? publicShareTitle(row.title) : "Content unavailable"
   const description = row && !expired && !row.password_hash ? row.excerpt : ''
 
   const meta = [
@@ -286,6 +286,10 @@ async function renderShareShell(
     'Cache-Control': 'no-store',
     'X-Robots-Tag': 'noindex',
   })
+}
+
+export function publicShareTitle(title: string): string {
+  return title || 'Untitled note'
 }
 
 function escapeHtml(text: string): string {

@@ -126,7 +126,7 @@ describe('preview task interaction', () => {
       useUi.setState({ activeNoteId: 'other' })
       await act(async () => pending.resolve('created'))
 
-      expect(createNote).toHaveBeenCalledWith({ content: '# Missing\n\n', open: false })
+      expect(createNote).toHaveBeenCalledWith({ title: 'Missing', open: false })
       expect(openNote).not.toHaveBeenCalled()
     } finally {
       await act(async () => root.unmount())

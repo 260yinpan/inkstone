@@ -344,8 +344,14 @@ console.log('[search filters and stable backlinks]')
     `reindex=${reindexed.status} edit=${editedDuringReindex.status}`,
   )
 
-  const targetA = await owner.req('POST', '/api/notes', { content: '# Stable Link Target\n\nA' })
-  const targetB = await owner.req('POST', '/api/notes', { content: '# Stable Link Target\n\nB' })
+  const targetA = await owner.req('POST', '/api/notes', {
+    title: 'Stable Link Target',
+    content: '# Stable Link Target\n\nA',
+  })
+  const targetB = await owner.req('POST', '/api/notes', {
+    title: 'Stable Link Target',
+    content: '# Stable Link Target\n\nB',
+  })
   const source = await owner.req('POST', '/api/notes', {
     content: '# Stable Link Source\n\n[[Stable Link Target]]',
   })
@@ -364,6 +370,7 @@ console.log('[search filters and stable backlinks]')
   const fallback = pointsToA ? targetB : targetA
   const renamed = await owner.req('PATCH', `/api/notes/${winner.data?.id}`, {
     rev: winner.data?.rev,
+    title: 'Renamed Link Target',
     content: '# Renamed Link Target\n\nrenamed',
   })
   const fallbackBacklinks = await owner.req('GET', `/api/notes/${fallback.data?.id}/backlinks`)
@@ -375,7 +382,10 @@ console.log('[search filters and stable backlinks]')
       !(renamedBacklinks.data?.backlinks ?? []).some((item) => item.id === source.data?.id),
   )
 
-  const targetC = await owner.req('POST', '/api/notes', { content: '# Stable Link Target\n\nC' })
+  const targetC = await owner.req('POST', '/api/notes', {
+    title: 'Stable Link Target',
+    content: '# Stable Link Target\n\nC',
+  })
   const trashedFallback = await owner.req('DELETE', `/api/notes/${fallback.data?.id}`)
   const thirdBacklinks = await owner.req('GET', `/api/notes/${targetC.data?.id}/backlinks`)
   check(
@@ -511,21 +521,33 @@ console.log('[atomic note writes]')
 
 console.log('[sync retry durability]')
 {
-  const base = await owner.req('POST', '/api/notes', { content: '# Sync version base' })
+  const base = await owner.req('POST', '/api/notes', {
+    title: 'Sync version base',
+    content: '# Sync version base',
+  })
   const remote = await owner.req('PATCH', `/api/notes/${base.data?.id}`, {
     rev: base.data?.rev,
+    title: 'Remote version title',
     content: '# Remote version that must remain recoverable',
   })
   const rebased = await owner.req('PATCH', `/api/notes/${base.data?.id}`, {
     rev: remote.data?.rev,
+    title: 'Latest queued local title',
     content: '# Latest queued local version',
     preserveVersion: true,
   })
   const versions = await owner.req('GET', `/api/notes/${base.data?.id}/versions`)
+  const remoteVersionId = (versions.data?.versions ?? []).find(
+    (version) => version.title === 'Remote version title',
+  )?.id
+  const remoteVersion = remoteVersionId
+    ? await owner.req('GET', `/api/notes/${base.data?.id}/versions/${remoteVersionId}`)
+    : null
   check(
     'conflict rebase preserves the replaced remote body in version history',
     base.status === 201 && remote.status === 200 && rebased.status === 200 &&
-      (versions.data?.versions ?? []).some((version) => version.title === 'Remote version that must remain recoverable'),
+      remoteVersion?.status === 200 &&
+      remoteVersion.data?.content === '# Remote version that must remain recoverable',
   )
 
   if (base.data?.id) {
@@ -1101,6 +1123,7 @@ console.log('[registration toggle]')
 
   console.log('[attachment backup round-trip]')
   const roundTripNote = await owner.req('POST', '/api/notes', {
+    title: 'Attachment backup round-trip',
     content: '# Attachment backup round-trip\n\nbackup-attachment-round-trip',
   })
   const roundTripForm = new FormData()
@@ -1147,6 +1170,7 @@ console.log('[registration toggle]')
   )
 
   const trashFixture = await owner.req('POST', '/api/notes', {
+    title: 'Backup trash round-trip',
     content: '# Backup trash round-trip\n\ntrashed-note-must-survive-backup #trash-round-trip',
   })
   const trashAttachmentForm = new FormData()

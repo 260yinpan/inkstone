@@ -342,7 +342,7 @@ export function CommandPalette({ onClose }: {
                 icon: <Plus size={14}/>,
                 group: t("command.commands"),
                 score: 0,
-                run: () => void createNote({ content: `# ${text}\n\n` }),
+                run: () => void createNote({ title: text }),
             });
         }
         return all.sort((a, b) => b.score - a.score).slice(0, 40);

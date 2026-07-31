@@ -125,6 +125,26 @@ describe('public share request lifecycle', () => {
     }
   })
 
+  it('shows a localized fallback for an intentionally empty title', async () => {
+    readShare.mockResolvedValue(publicNote('', 'Body'))
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    try {
+      await act(async () => {
+        root.render(createElement(SharePage, { slug: 'empty-title' }))
+        await flushPromises()
+      })
+
+      expect(container.querySelector('h1')?.textContent).toBe(t('common.untitled_note'))
+      expect(document.title).toBe(`${t('common.untitled_note')} · Inkstone`)
+    } finally {
+      await act(async () => root.unmount())
+      container.remove()
+    }
+  })
+
   it('activates public code copy, tabs, and Mermaid rendering', async () => {
     readShare.mockResolvedValue(
       publicNote(

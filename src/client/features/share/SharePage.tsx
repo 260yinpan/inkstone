@@ -44,7 +44,7 @@ export function SharePage({ slug }: {
             setNote(result);
             setNeedPassword(false);
             setPassword('');
-            const title = `${result.title} · ${result.site.name}`;
+            const title = `${result.title || t("common.untitled_note")} · ${result.site.name}`;
             document.title = title;
             appliedTitleRef.current = title;
         }
@@ -217,7 +217,7 @@ export function SharePage({ slug }: {
           </div>) : note ? (<article className="pt-7 md:pt-10">
             <header className="mb-6 md:mb-8">
               <h1 className="text-[26px] leading-[1.25] font-bold tracking-[-0.03em] text-[var(--text-primary)] md:text-[30px]">
-                {note.title}
+                {note.title || t("common.untitled_note")}
               </h1>
               <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-[var(--text-quaternary)]">
                 <span className="flex items-center gap-1.5">

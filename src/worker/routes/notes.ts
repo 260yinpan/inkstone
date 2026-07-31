@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
-import { countText, deriveExcerpt, deriveTitle } from '@shared/markdown-utils'
-import { sliceText, truncateText, utf8ByteLength } from '@shared/text-utils'
+import { countText, deriveExcerpt } from '@shared/markdown-utils'
+import { duplicateNoteTitle, sliceText, truncateText, utf8ByteLength } from '@shared/text-utils'
 import type {
   CreateNoteBody,
   ListNotesResponse,
@@ -200,7 +200,7 @@ notesRoutes.post('/', async (c) => {
     if (collision) throw ApiError.conflict('This note id is already in use')
   }
   const now = Date.now()
-  const title = body.title ? truncateText(body.title.trim(), LIMITS.titleMaxLength) || deriveTitle(content) : deriveTitle(content)
+  const title = resolveNoteTitle(body.title)
   const excerpt = deriveExcerpt(content)
   const { words, chars } = countText(content)
   const hash = await sha256Hex(content)
@@ -300,6 +300,7 @@ notesRoutes.patch('/:id', async (c) => {
   let newTitle = row.title
   let newContent = row.content
   let newHash = row.content_hash
+  const resolvedTitle = resolveNoteTitle(body.title, row.title)
 
   if (typeof body.content === 'string' && body.content !== row.content) {
     assertContentSize(body.content)
@@ -308,8 +309,7 @@ notesRoutes.patch('/:id', async (c) => {
       contentChanged = true
       newHash = hash
       newContent = body.content
-      newTitle =
-        body.title ? truncateText(body.title.trim(), LIMITS.titleMaxLength) || deriveTitle(body.content) : deriveTitle(body.content)
+      newTitle = resolvedTitle
       const { words, chars } = countText(body.content)
       push(sets, binds, 'content', body.content)
       push(sets, binds, 'content_hash', hash)
@@ -318,8 +318,8 @@ notesRoutes.patch('/:id', async (c) => {
       push(sets, binds, 'word_count', words)
       push(sets, binds, 'char_count', chars)
     }
-  } else if (typeof body.title === 'string' && body.title.trim() && body.title.trim() !== row.title) {
-    newTitle = truncateText(body.title.trim(), LIMITS.titleMaxLength)
+  } else if (resolvedTitle !== row.title) {
+    newTitle = resolvedTitle
     push(sets, binds, 'title', newTitle)
   }
 
@@ -562,7 +562,7 @@ notesRoutes.post('/:id/duplicate', async (c) => {
 
   const id = newId()
   const now = Date.now()
-  const title = truncateText(`${source.title} copy`, LIMITS.titleMaxLength)
+  const title = duplicateNoteTitle(source.title, LIMITS.titleMaxLength)
   const content = source.content
   const hash = await sha256Hex(content)
 
@@ -662,7 +662,7 @@ notesRoutes.post('/:id/versions/:versionId/restore', async (c) => {
   const current = await loadNoteRow(c.env.DB, userId, id)
   const now = Math.max(Date.now(), current.updated_at + 1)
   const { words, chars } = countText(version.content)
-  const title = restoredVersionTitle(version.title, version.content)
+  const title = restoredVersionTitle(version.title)
   const hash = await sha256Hex(version.content)
   const nextRev = current.rev + 1
   const mutationGuard = `EXISTS (SELECT 1 FROM notes
@@ -776,8 +776,12 @@ function linkContext(content: string, title: string): string {
   )
 }
 
-export function restoredVersionTitle(title: string, content: string): string {
-  return truncateText(title.trim(), LIMITS.titleMaxLength) || deriveTitle(content)
+export function restoredVersionTitle(title: string): string {
+  return resolveNoteTitle(title)
+}
+
+export function resolveNoteTitle(title: string | undefined, current = ''): string {
+  return title === undefined ? current : truncateText(title.trim(), LIMITS.titleMaxLength)
 }
 
 export function nextNotesCursor(offset: number, returned: number, total: number): string | null {

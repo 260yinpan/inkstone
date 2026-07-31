@@ -286,7 +286,7 @@ export function Preview({
           wikiScrollCleanupRef.current = scrollToWikiTarget(hostRef, parsed, isCurrent)
         })
       } else if (parsed.noteTitle) {
-        void createNote({ content: `# ${parsed.noteTitle}\n\n`, open: false }).then((id) => {
+        void createNote({ title: parsed.noteTitle, open: false }).then((id) => {
           if (!id) return
           toast({ title: t("preview.created_title", { title: parsed.noteTitle }), tone: 'success' })
           if (

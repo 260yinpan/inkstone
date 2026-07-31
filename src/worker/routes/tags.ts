@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { LIMITS } from '@shared/constants'
-import { countText, deriveExcerpt, deriveTitle, replaceTagInContent } from '@shared/markdown-utils'
+import { countText, deriveExcerpt, replaceTagInContent } from '@shared/markdown-utils'
 import { truncateText, utf8ByteLength } from '@shared/text-utils'
 import type { AppBindings } from '../env'
 import { toTag, type TagRow } from '../db/rows'
@@ -196,7 +196,7 @@ async function rewriteTagInNotes(
         break
       }
 
-      const title = deriveTitle(content)
+      const title = note.title
       const { words, chars } = countText(content)
       const hash = await sha256Hex(content)
       const now = Math.max(Date.now(), note.updated_at + 1)

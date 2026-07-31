@@ -745,6 +745,7 @@ export const EN_US_MESSAGES = {
     "workspace.layout": "Layout",
     "workspace.link": "Link",
     "workspace.loading_note_content": "Loading note content",
+    "workspace.note_title": "Note title",
     "workspace.math": "Math",
     "workspace.mermaid_diagram": "Mermaid diagram",
     "workspace.more_blocks": "More blocks",

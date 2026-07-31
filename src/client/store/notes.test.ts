@@ -26,7 +26,7 @@ afterEach(() => {
 })
 
 describe('note editing update boundaries', () => {
-  it('updates content immediately but coalesces shell metadata into one stable update', () => {
+  it('updates content metadata without replacing a custom title', () => {
     vi.useFakeTimers()
     vi.setSystemTime(10_000)
     const id = 'coalesced-note'
@@ -72,7 +72,7 @@ describe('note editing update boundaries', () => {
 
       expect(noteIndexChanges).toBe(1)
       expect(useNotes.getState().notes[id]).toMatchObject({
-        title: 'New title',
+        title: 'Old title',
         tags: ['alpha', 'zeta'],
         updatedAt: 10_000,
       })

@@ -78,6 +78,7 @@ describe('browser-only demo backend', () => {
     await demo.login()
 
     const created = await demo.post<{ id: string; rev: number }>('/api/notes', {
+      title: 'Demo changes',
       content: '# Demo changes\n\nLink to [[Welcome to Inkstone]].\n\n#temporary',
     })
     expect(created.response.status).toBe(201)
@@ -85,7 +86,7 @@ describe('browser-only demo backend', () => {
     const patched = await demo.json<{ rev: number; isStarred: boolean }>(`/api/notes/${created.data.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rev: created.data.rev, isStarred: true, content: '# Updated demo\n\n#temporary' }),
+      body: JSON.stringify({ rev: created.data.rev, title: 'Updated demo', isStarred: true, content: '# Updated demo\n\n#temporary' }),
     })
     expect(patched.data).toMatchObject({ rev: 2, isStarred: true })
 

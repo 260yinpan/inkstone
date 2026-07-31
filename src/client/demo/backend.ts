@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
-import { APP_VERSION, mergeSettingsPatch } from '@shared/constants'
+import { APP_VERSION, LIMITS, mergeSettingsPatch } from '@shared/constants'
+import { duplicateNoteTitle } from '@shared/text-utils'
 import {
   deriveExcerpt,
   deriveTitle,
@@ -151,15 +152,11 @@ export function createDemoBackend(): DemoBackend {
     if (state.notes.has(requestedId)) {
       return apiError(409, 'conflict', 'A note with this ID already exists')
     }
-    const content = typeof body.content === 'string'
-      ? body.content
-      : typeof body.title === 'string' && body.title.trim()
-        ? `# ${body.title.trim()}\n\n`
-        : ''
+    const content = typeof body.content === 'string' ? body.content : ''
     const now = Date.now()
     const base: Note = {
       id: requestedId,
-      title: 'Untitled note',
+      title: '',
       excerpt: '',
       content: '',
       folderId: typeof body.folderId === 'string' && state.folders.has(body.folderId) ? body.folderId : null,
@@ -240,7 +237,7 @@ export function createDemoBackend(): DemoBackend {
         deletedAt: null,
       },
       source.content,
-      `${source.title} copy`,
+      duplicateNoteTitle(source.title, LIMITS.titleMaxLength),
     )
     state.notes.set(copy.id, copy)
     state.cursor++
@@ -283,7 +280,6 @@ export function createDemoBackend(): DemoBackend {
       nextContent,
       typeof body.title === 'string' ? body.title : undefined,
     )
-    if (typeof body.title !== 'string' && typeof body.content !== 'string') updated = { ...updated, title: note.title }
     state.notes.set(id, updated)
     state.cursor++
     return c.json(updated)
@@ -900,7 +896,7 @@ function createImportedNote(
   const id = newDemoId()
   const note = refreshNote({
     id,
-    title: title || 'Untitled note',
+    title: title ?? deriveTitle(content),
     excerpt: '',
     content: '',
     folderId,

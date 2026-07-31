@@ -38,6 +38,7 @@ worker-configuration.d.ts
 
 # Private project documentation
 /docs/
+RELEASE_NOTES.md
 
 # Test and temporary artifacts
 test-results/

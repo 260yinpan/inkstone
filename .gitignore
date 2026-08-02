@@ -41,6 +41,7 @@ worker-configuration.d.ts
 RELEASE_NOTES.md
 
 # Test and temporary artifacts
+.tests/
 test-results/
 playwright-report/
 .tmp-*

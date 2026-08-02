@@ -232,7 +232,7 @@ export class SyncEngine {
   private startPolling(): void {
     window.clearInterval(this.pollTimer)
     this.pollTimer = window.setInterval(() => {
-      if (document.hidden) return
+      if (document.hidden || !this.isLeader) return
 
       const wsHealthy = this.socket?.readyState === WebSocket.OPEN
       if (wsHealthy && Date.now() - this.lastPong < HEARTBEAT_MS * 2) {

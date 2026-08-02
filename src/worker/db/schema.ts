@@ -1,5 +1,6 @@
 /** Defines the idempotent final D1 schema initialized by every Worker isolate. */
 import type { DatabaseState, Env } from '../env'
+import { getMeta, setMeta } from './metadata'
 
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
@@ -226,6 +227,8 @@ const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
   tokenize = "unicode61 remove_diacritics 2"
 )`
 
+const DATABASE_STATE_KEY = 'database-state-v1'
+
 const REQUIRED_USER_COLUMNS = [
   'id',
   'username',
@@ -318,6 +321,9 @@ export function initializeDatabase(env: Env): Promise<DatabaseState> {
 }
 
 async function createSchema(db: D1Database): Promise<DatabaseState> {
+  const stored = await readStoredDatabaseState(db)
+  if (stored) return stored
+
   const initialized = await db
     .prepare(`SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'users'`)
     .first<{ present: number }>()
@@ -326,16 +332,45 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
   }
   await assertFinalSchema(db)
 
+  let state: DatabaseState
   try {
     await db.prepare(FTS_STATEMENT).run()
-    return { ftsEnabled: true }
+    state = { ftsEnabled: true }
   } catch (error) {
     console.warn(
       '[inkstone] The current database does not support FTS5; search will use LIKE:',
       error instanceof Error ? error.message : error,
     )
-    return { ftsEnabled: false }
+    state = { ftsEnabled: false }
   }
+  if (state.ftsEnabled) {
+    await setMeta(db, DATABASE_STATE_KEY, JSON.stringify({
+      schema: schemaFingerprint(),
+      ftsEnabled: true,
+    }))
+  }
+  return state
+}
+
+async function readStoredDatabaseState(db: D1Database): Promise<DatabaseState | null> {
+  try {
+    const raw = await getMeta(db, DATABASE_STATE_KEY)
+    if (!raw) return null
+    const value = JSON.parse(raw) as { schema?: unknown; ftsEnabled?: unknown }
+    if (value.schema !== schemaFingerprint() || value.ftsEnabled !== true) return null
+    return { ftsEnabled: true }
+  } catch {
+    return null
+  }
+}
+
+function schemaFingerprint(): string {
+  const source = [...SCHEMA_STATEMENTS, FTS_STATEMENT].join('\n')
+  let hash = 0x811c9dc5
+  for (let index = 0; index < source.length; index++) {
+    hash = Math.imul(hash ^ source.charCodeAt(index), 0x01000193)
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0')
 }
 
 async function assertFinalSchema(db: D1Database): Promise<void> {

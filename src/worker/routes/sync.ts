@@ -9,6 +9,10 @@ import { requireAuth } from '../middleware/auth'
 
 export const syncRoutes = new Hono<AppBindings>()
 
+export const CHANGE_BOUNDS_SQL = `SELECT
+  (SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq ASC LIMIT 1) AS lo,
+  (SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT 1) AS hi`
+
 const FOLDER_SELECT = `f.id, f.parent_id, f.name, f.icon, f.position, f.created_at, f.updated_at,
   (SELECT COUNT(*) FROM notes n
      WHERE n.folder_id = f.id AND n.user_id = f.user_id
@@ -25,9 +29,7 @@ syncRoutes.get('/', requireAuth, async (c) => {
   const since = clampInt(c.req.query('since'), 0, Number.MAX_SAFE_INTEGER, 0)
   const after = (c.req.query('after') ?? '').slice(0, 128)
 
-  const bounds = await c.env.DB.prepare(
-    `SELECT MIN(seq) AS lo, MAX(seq) AS hi FROM changes WHERE user_id = ?1`,
-  )
+  const bounds = await c.env.DB.prepare(CHANGE_BOUNDS_SQL)
     .bind(userId)
     .first<{ lo: number | null; hi: number | null }>()
 

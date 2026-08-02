@@ -1,10 +1,16 @@
 import { BACKUP_INTERVALS, LIMITS, mergeSettings } from '@shared/constants'
 import type { Env } from '../env'
 import { initializeDatabase } from '../db/schema'
+import { getMeta, setMeta } from '../db/metadata'
+import { ApiError } from '../lib/errors'
+import { acquireLease } from '../lib/lease'
 import { forEachConcurrent } from './concurrency'
 import { runBackup } from './engine'
 
 const USER_PAGE_SIZE = 100
+const CHANGE_LOG_TRIM_INTERVAL_MS = 24 * 60 * 60 * 1000
+const CHANGE_LOG_TRIM_META_KEY = 'change-log-trim-last-success-v1'
+const CHANGE_LOG_TRIM_LEASE_KEY = 'change-log-trim-lease-v1'
 
 
 export async function runScheduledBackups(env: Env): Promise<void> {
@@ -56,35 +62,65 @@ export async function runScheduledBackups(env: Env): Promise<void> {
     if (users.length < USER_PAGE_SIZE) break
   }
 
-  await trimChangeLog(env)
+  try {
+    await trimChangeLogIfDue(env, now)
+  } catch (error) {
+    console.warn('[inkstone] Failed to trim the change log:', error)
+  }
+}
+
+async function trimChangeLogIfDue(env: Env, now: number): Promise<void> {
+  if (!isChangeLogTrimDue(await getMeta(env.DB, CHANGE_LOG_TRIM_META_KEY), now)) return
+
+  let release: (() => Promise<void>) | null = null
+  try {
+    release = await acquireLease(
+      env.DB,
+      CHANGE_LOG_TRIM_LEASE_KEY,
+      30 * 60 * 1000,
+      'Change-log maintenance is already running',
+    )
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) return
+    throw error
+  }
+
+  try {
+    if (!isChangeLogTrimDue(await getMeta(env.DB, CHANGE_LOG_TRIM_META_KEY), now)) return
+    await trimChangeLog(env)
+    await setMeta(env.DB, CHANGE_LOG_TRIM_META_KEY, String(now))
+  } finally {
+    await release()
+  }
+}
+
+export function isChangeLogTrimDue(lastSuccess: string | null, now: number): boolean {
+  const last = Number(lastSuccess)
+  return !Number.isFinite(last) || last < 0 || now - last >= CHANGE_LOG_TRIM_INTERVAL_MS
 }
 
 async function trimChangeLog(env: Env): Promise<void> {
-  try {
-    let afterUserId = ''
-    while (true) {
-      const { results } = await env.DB.prepare(
-        `SELECT DISTINCT user_id FROM changes WHERE user_id > ?1 ORDER BY user_id LIMIT ?2`,
+  let afterUserId = ''
+  while (true) {
+    const { results } = await env.DB.prepare(
+      `SELECT DISTINCT user_id FROM changes WHERE user_id > ?1 ORDER BY user_id LIMIT ?2`,
+    )
+      .bind(afterUserId, USER_PAGE_SIZE)
+      .all<{ user_id: string }>()
+    if (results.length === 0) break
+    for (const row of results) {
+      await env.DB.prepare(
+        `DELETE FROM changes WHERE user_id = ?1 AND seq < (
+           SELECT MIN(seq) FROM (
+             SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT ?2
+           )
+         )`,
       )
-        .bind(afterUserId, USER_PAGE_SIZE)
-        .all<{ user_id: string }>()
-      if (results.length === 0) break
-      for (const row of results) {
-        await env.DB.prepare(
-          `DELETE FROM changes WHERE user_id = ?1 AND seq < (
-             SELECT MIN(seq) FROM (
-               SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT ?2
-             )
-           )`,
-        )
-          .bind(row.user_id, LIMITS.changeLogKept)
-          .run()
-      }
-      afterUserId = results[results.length - 1]!.user_id
-      if (results.length < USER_PAGE_SIZE) break
+        .bind(row.user_id, LIMITS.changeLogKept)
+        .run()
     }
-  } catch (err) {
-    console.warn('[inkstone] Failed to trim the change log:', err)
+    afterUserId = results[results.length - 1]!.user_id
+    if (results.length < USER_PAGE_SIZE) break
   }
 }
 

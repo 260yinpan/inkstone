@@ -68,7 +68,7 @@ export function toNote(row: NoteRow): Note {
 }
 
 export function toFolder(row: FolderRow): Folder {
-  return {
+  const folder: Folder = {
     id: row.id,
     parentId: row.parent_id,
     name: row.name,
@@ -76,8 +76,9 @@ export function toFolder(row: FolderRow): Folder {
     position: row.position,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    noteCount: row.note_count ?? 0,
   }
+  if (row.note_count !== undefined) folder.noteCount = row.note_count
+  return folder
 }
 
 export function toTag(row: TagRow): Tag {

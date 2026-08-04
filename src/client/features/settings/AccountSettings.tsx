@@ -324,7 +324,7 @@ function PasswordSection() {
 
 function RegistrationSection() {
   const site = useSession((state) => state.site)
-  const refresh = useSession((state) => state.refresh)
+  const updateRegistration = useSession((state) => state.updateRegistration)
   const toast = useUi((state) => state.toast)
   const [target, setTarget] = useState<boolean | null>(null)
   const [password, setPassword] = useState('')
@@ -356,24 +356,18 @@ function RegistrationSection() {
     if (!password) return setError(t("settings.enter_your_password"))
     busyRef.current = true
     setBusy(true)
+    const currentPassword = password
+    setTarget(null)
+    setPassword('')
     try {
-      await api.auth.updateRegistration(requested, password)
+      await updateRegistration(requested, currentPassword)
       toast({
         title: requested ? t("settings.registration_open") : t("settings.registration_closed"),
         description: requested ? t("settings.anyone_can_now_register_a_new_account") : t("settings.only_existing_accounts_can_log_in"),
         tone: 'success',
       })
-      setTarget(null)
-      setPassword('')
-      try {
-        await refresh()
-      } catch {
-        toast({
-          title: t("settings.operation_completed_but_refresh_failed"),
-          tone: 'warning',
-        })
-      }
     } catch (caught) {
+      setTarget(requested)
       setError(caught instanceof ApiError ? caught.message : t("settings.action_failed_try_again"))
     } finally {
       busyRef.current = false

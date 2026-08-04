@@ -5,7 +5,7 @@ import type { Folder } from '@shared/types'
 import type { AppBindings } from '../env'
 import { toFolder, type FolderRow } from '../db/rows'
 import { ApiError } from '../lib/errors'
-import { newId } from '../lib/id'
+import { isValidId, newId } from '../lib/id'
 import { broadcastCursor } from '../lib/notify'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
@@ -14,16 +14,13 @@ export const foldersRoutes = new Hono<AppBindings>()
 
 foldersRoutes.use('*', requireAuth)
 
-const FOLDER_SELECT = `f.id, f.parent_id, f.name, f.icon, f.position, f.created_at, f.updated_at,
-  (SELECT COUNT(*) FROM notes n
-     WHERE n.folder_id = f.id AND n.user_id = f.user_id
-       AND n.deleted_at IS NULL AND n.is_archived = 0) AS note_count`
+const FOLDER_SELECT = `f.id, f.parent_id, f.name, f.icon, f.position, f.created_at, f.updated_at`
 
 foldersRoutes.get('/', async (c) => {
   const { results } = await c.env.DB.prepare(
     `SELECT ${FOLDER_SELECT} FROM folders f
       WHERE f.user_id = ?1 AND f.deleted_at IS NULL
-      ORDER BY f.position ASC, f.created_at ASC`,
+      ORDER BY f.position ASC, f.created_at ASC, f.id ASC`,
   )
     .bind(c.get('userId'))
     .all<FolderRow>()
@@ -32,7 +29,7 @@ foldersRoutes.get('/', async (c) => {
 
 foldersRoutes.post('/', async (c) => {
   const userId = c.get('userId')
-  const body = await readJson<{ name?: string; parentId?: string | null; icon?: string | null }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ id?: string; name?: string; parentId?: string | null; icon?: string | null }>(c, JSON_BODY_LIMITS.small)
 
   if (body.name !== undefined && typeof body.name !== 'string') {
     throw ApiError.badRequest('name must be a string')
@@ -43,16 +40,29 @@ foldersRoutes.post('/', async (c) => {
   if (body.icon !== undefined && body.icon !== null && typeof body.icon !== 'string') {
     throw ApiError.badRequest('icon must be a string or null')
   }
-  const name = (body.name ?? '').trim() || "New folder"
-  if (name.length > LIMITS.folderNameMaxLength) throw ApiError.badRequest('Folder name is too long')
-
+  if (body.id !== undefined && !isValidId(body.id)) {
+    throw ApiError.badRequest('id must be a valid folder id')
+  }
+  const id = body.id ?? newId()
+  if (body.id) {
+    const existing = await c.env.DB.prepare(
+      `SELECT ${FOLDER_SELECT} FROM folders f WHERE f.id = ?1 AND f.user_id = ?2 AND f.deleted_at IS NULL`,
+    ).bind(id, userId).first<FolderRow>()
+    if (existing) return c.json(toFolder(existing))
+    const collision = await c.env.DB.prepare(`SELECT user_id FROM folders WHERE id = ?1`)
+      .bind(id)
+      .first<{ user_id: string }>()
+    if (collision) throw ApiError.conflict('This folder id is already in use')
+  }
   const graph = await loadFolderGraph(c.env.DB, userId)
   const parentId = validateParent(graph, body.parentId ?? null)
+  const requestedName = (body.name ?? '').trim()
+  const name = requestedName || availableFolderName(graph, parentId, "New folder")
+  if (name.length > LIMITS.folderNameMaxLength) throw ApiError.badRequest('Folder name is too long')
   if (parentId && folderDepth(graph, parentId) >= LIMITS.folderDepthMax) {
     throw ApiError.badRequest(`Folder depth cannot exceed ${LIMITS.folderDepthMax} levels`)
   }
 
-  const id = newId()
   const now = Date.now()
   const insert = c.env.DB.prepare(
     `WITH RECURSIVE ancestors(id, parent_id, depth) AS (
@@ -99,6 +109,7 @@ foldersRoutes.patch('/:id', async (c) => {
   const body = await readJson<{
     name?: string
     parentId?: string | null
+    beforeId?: string | null
     icon?: string | null
   }>(c, JSON_BODY_LIMITS.small)
 
@@ -118,6 +129,13 @@ foldersRoutes.patch('/:id', async (c) => {
   if (body.parentId !== undefined && body.parentId !== null && typeof body.parentId !== 'string') {
     throw ApiError.badRequest('parentId must be a string or null')
   }
+  if (body.beforeId !== undefined && body.beforeId !== null && typeof body.beforeId !== 'string') {
+    throw ApiError.badRequest('beforeId must be a string or null')
+  }
+  if (body.beforeId !== undefined && body.parentId === undefined) {
+    throw ApiError.badRequest('parentId is required when reordering a folder')
+  }
+  if (body.beforeId === id) throw ApiError.badRequest('A folder cannot be placed before itself')
   if (body.icon !== undefined && body.icon !== null && typeof body.icon !== 'string') {
     throw ApiError.badRequest('icon must be a string or null')
   }
@@ -140,8 +158,26 @@ foldersRoutes.patch('/:id', async (c) => {
     if (nextDepth > LIMITS.folderDepthMax) {
       throw ApiError.badRequest(`Folder depth cannot exceed ${LIMITS.folderDepthMax} levels`)
     }
-    binds.push(parentId)
-    sets.push(`parent_id = ?${binds.length}`)
+    if (parentId !== existing.parent_id) {
+      binds.push(parentId)
+      sets.push(`parent_id = ?${binds.length}`)
+    }
+  }
+  const parentChanged = parentId !== existing.parent_id
+  const shouldPlace = body.beforeId !== undefined || parentChanged
+  if (shouldPlace) {
+    const position = await resolveFolderPosition(
+      c.env.DB,
+      userId,
+      id,
+      existing.parent_id,
+      parentId,
+      body.beforeId ?? null,
+    )
+    if (position !== null) {
+      binds.push(position)
+      sets.push(`position = ?${binds.length}`)
+    }
   }
   if (!sets.length) return c.json(await loadFolder(c.env.DB, userId, id))
 
@@ -171,8 +207,22 @@ foldersRoutes.patch('/:id', async (c) => {
         ))
         AND NOT EXISTS (SELECT 1 FROM descendants WHERE id = ?3)
         AND COALESCE((SELECT MAX(depth) FROM ancestors), 0)
-            + COALESCE((SELECT MAX(depth) FROM descendants), 1) <= ?${binds.length + 5}`,
-  ).bind(id, userId, parentId, ...binds, existing.updated_at, LIMITS.folderDepthMax)
+            + COALESCE((SELECT MAX(depth) FROM descendants), 1) <= ?${binds.length + 5}
+        AND (?${binds.length + 6} IS NULL OR EXISTS (
+          SELECT 1 FROM folders before_folder
+           WHERE before_folder.id = ?${binds.length + 6}
+             AND before_folder.user_id = ?2 AND before_folder.parent_id IS ?3
+             AND before_folder.deleted_at IS NULL
+        ))`,
+  ).bind(
+    id,
+    userId,
+    parentId,
+    ...binds,
+    existing.updated_at,
+    LIMITS.folderDepthMax,
+    body.beforeId ?? null,
+  )
   const change = c.env.DB.prepare(
     `INSERT INTO changes (user_id, entity, entity_id, op, at)
      SELECT ?1, 'folder', ?2, 'upsert', ?3
@@ -192,13 +242,15 @@ foldersRoutes.delete('/:id', async (c) => {
   const now = Date.now()
 
   const row = await c.env.DB.prepare(
-    `SELECT id, parent_id, updated_at FROM folders WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
+    `SELECT id, parent_id, position, updated_at FROM folders WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
   )
     .bind(id, userId)
-    .first<{ id: string; parent_id: string | null; updated_at: number }>()
+    .first<{ id: string; parent_id: string | null; position: number; updated_at: number }>()
   if (!row) throw ApiError.notFound('Folder not found')
 
   if (strategy === 'move-up') {
+    const promotionOrder = await folderPromotionOrder(c.env.DB, userId, row)
+    const promotionJson = JSON.stringify(promotionOrder)
     const guard = `EXISTS (SELECT 1 FROM folders
       WHERE id = ?1 AND user_id = ?2 AND updated_at = ?3 AND deleted_at IS NULL)
       AND NOT EXISTS (
@@ -216,9 +268,9 @@ foldersRoutes.delete('/:id', async (c) => {
     const statements = [
       c.env.DB.prepare(
         `INSERT INTO changes (user_id, entity, entity_id, op, at)
-         SELECT ?2, 'folder', id, 'upsert', ?4 FROM folders
-          WHERE parent_id = ?1 AND user_id = ?2 AND deleted_at IS NULL AND ${guard}`,
-      ).bind(id, userId, row.updated_at, now),
+         SELECT ?2, 'folder', json_extract(item.value, '$.id'), 'upsert', ?4
+           FROM json_each(?5) item WHERE ${guard}`,
+      ).bind(id, userId, row.updated_at, now, promotionJson),
       c.env.DB.prepare(
         `INSERT INTO changes (user_id, entity, entity_id, op, at)
          SELECT ?2, 'note', id, 'upsert', ?4 FROM notes
@@ -229,9 +281,16 @@ foldersRoutes.delete('/:id', async (c) => {
          SELECT ?2, 'folder', ?1, 'delete', ?4 WHERE ${guard}`,
       ).bind(id, userId, row.updated_at, now),
       c.env.DB.prepare(
-        `UPDATE folders SET parent_id = ?4, updated_at = MAX(updated_at + 1, ?5)
-          WHERE parent_id = ?1 AND user_id = ?2 AND deleted_at IS NULL AND ${guard}`,
-      ).bind(id, userId, row.updated_at, row.parent_id, now),
+        `UPDATE folders SET
+           parent_id = CASE WHEN parent_id = ?1 THEN ?4 ELSE parent_id END,
+           position = COALESCE((
+             SELECT json_extract(item.value, '$.position') FROM json_each(?6) item
+              WHERE json_extract(item.value, '$.id') = folders.id
+           ), position),
+           updated_at = MAX(updated_at + 1, ?5)
+          WHERE id IN (SELECT json_extract(item.value, '$.id') FROM json_each(?6) item)
+            AND user_id = ?2 AND deleted_at IS NULL AND ${guard}`,
+      ).bind(id, userId, row.updated_at, row.parent_id, now, promotionJson),
       c.env.DB.prepare(
         `UPDATE notes SET folder_id = ?4, updated_at = MAX(updated_at + 1, ?5), rev = rev + 1
           WHERE folder_id = ?1 AND user_id = ?2 AND ${guard}`,
@@ -305,23 +364,188 @@ async function loadFolder(db: D1Database, userId: string, id: string): Promise<F
 interface FolderGraph {
   parents: Map<string, string | null>
   children: Map<string, string[]>
+  siblingNames: Map<string, Set<string>>
+}
+
+interface FolderOrderRow {
+  id: string
+  position: number
+  created_at: number
+}
+
+interface FolderPromotionRow extends FolderOrderRow {
+  parent_id: string | null
 }
 
 async function loadFolderGraph(db: D1Database, userId: string): Promise<FolderGraph> {
   const { results } = await db
-    .prepare(`SELECT id, parent_id FROM folders WHERE user_id = ?1 AND deleted_at IS NULL`)
+    .prepare(`SELECT id, parent_id, name FROM folders WHERE user_id = ?1 AND deleted_at IS NULL`)
     .bind(userId)
-    .all<{ id: string; parent_id: string | null }>()
+    .all<{ id: string; parent_id: string | null; name: string }>()
   const parents = new Map<string, string | null>()
   const children = new Map<string, string[]>()
+  const siblingNames = new Map<string, Set<string>>()
   for (const row of results) {
     parents.set(row.id, row.parent_id)
     const key = row.parent_id ?? ''
     const list = children.get(key) ?? []
     list.push(row.id)
     children.set(key, list)
+    const names = siblingNames.get(key) ?? new Set<string>()
+    names.add(row.name.toLocaleLowerCase())
+    siblingNames.set(key, names)
   }
-  return { parents, children }
+  return { parents, children, siblingNames }
+}
+
+function availableFolderName(graph: FolderGraph, parentId: string | null, base: string): string {
+  const names = graph.siblingNames.get(parentId ?? '') ?? new Set<string>()
+  if (!names.has(base.toLocaleLowerCase())) return base
+  let suffix = 2
+  while (names.has(`${base} ${suffix}`.toLocaleLowerCase())) suffix++
+  return `${base} ${suffix}`
+}
+
+async function resolveFolderPosition(
+  db: D1Database,
+  userId: string,
+  id: string,
+  currentParentId: string | null,
+  parentId: string | null,
+  beforeId: string | null,
+): Promise<number | null> {
+  let rows = await loadSiblingOrder(db, userId, parentId)
+  const currentOrder = rows.map((row) => row.id)
+  let siblings = rows.filter((row) => row.id !== id)
+  let index = beforeId === null ? siblings.length : siblings.findIndex((row) => row.id === beforeId)
+  if (index < 0) throw ApiError.badRequest('The target folder is not in the destination')
+
+  const desiredOrder = siblings.map((row) => row.id)
+  desiredOrder.splice(index, 0, id)
+  if (
+    currentParentId === parentId &&
+    currentOrder.length === desiredOrder.length &&
+    currentOrder.every((folderId, orderIndex) => folderId === desiredOrder[orderIndex])
+  ) {
+    return null
+  }
+
+  let position = insertionPosition(siblings[index - 1]?.position, siblings[index]?.position)
+  if (position !== null) return position
+
+  await normalizeSiblingPositions(db, userId, siblings)
+  rows = await loadSiblingOrder(db, userId, parentId)
+  siblings = rows.filter((row) => row.id !== id)
+  index = beforeId === null ? siblings.length : siblings.findIndex((row) => row.id === beforeId)
+  if (index < 0) throw ApiError.conflict('The destination folder order changed. Try again')
+  position = insertionPosition(siblings[index - 1]?.position, siblings[index]?.position)
+  if (position === null) throw ApiError.conflict('The folder order changed. Try again')
+  return position
+}
+
+async function loadSiblingOrder(
+  db: D1Database,
+  userId: string,
+  parentId: string | null,
+): Promise<FolderOrderRow[]> {
+  const { results } = await db.prepare(
+    `SELECT id, position, created_at FROM folders
+      WHERE user_id = ?1 AND parent_id IS ?2 AND deleted_at IS NULL
+      ORDER BY position ASC, created_at ASC, id ASC`,
+  ).bind(userId, parentId).all<FolderOrderRow>()
+  return results
+}
+
+function insertionPosition(previous: number | undefined, next: number | undefined): number | null {
+  if (previous === undefined && next === undefined) return 1000
+  if (previous === undefined) return next! - 1000
+  if (next === undefined) return previous + 1000
+  const position = previous + (next - previous) / 2
+  return Number.isFinite(position) && position > previous && position < next ? position : null
+}
+
+async function normalizeSiblingPositions(
+  db: D1Database,
+  userId: string,
+  siblings: FolderOrderRow[],
+): Promise<void> {
+  const now = Date.now()
+  const statements: D1PreparedStatement[] = []
+  for (let index = 0; index < siblings.length; index++) {
+    const sibling = siblings[index]!
+    const position = (index + 1) * 1000
+    if (sibling.position === position) continue
+    statements.push(
+      db.prepare(
+        `UPDATE folders SET position = ?3, updated_at = MAX(updated_at + 1, ?4)
+          WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
+      ).bind(sibling.id, userId, position, now),
+      db.prepare(
+        `INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?2, 'folder', ?1, 'upsert', ?3
+          WHERE EXISTS (SELECT 1 FROM folders WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL)`,
+      ).bind(sibling.id, userId, now),
+    )
+  }
+  if (statements.length) await db.batch(statements)
+}
+
+async function folderPromotionOrder(
+  db: D1Database,
+  userId: string,
+  folder: { id: string; parent_id: string | null; position: number },
+): Promise<Array<{ id: string; position: number }>> {
+  const { results } = await db.prepare(
+    `SELECT id, parent_id, position, created_at FROM folders
+      WHERE user_id = ?1 AND deleted_at IS NULL
+        AND (parent_id IS ?2 OR parent_id = ?3)`,
+  ).bind(userId, folder.parent_id, folder.id).all<FolderPromotionRow>()
+  const compare = (left: FolderOrderRow, right: FolderOrderRow) =>
+    left.position - right.position || left.created_at - right.created_at || left.id.localeCompare(right.id)
+  const siblings = results.filter((row) => row.parent_id === folder.parent_id).sort(compare)
+  const children = results.filter((row) => row.parent_id === folder.id).sort(compare)
+  if (!children.length) return []
+
+  const folderIndex = siblings.findIndex((row) => row.id === folder.id)
+  if (folderIndex < 0) throw ApiError.conflict('The folder hierarchy changed. Refresh and try again')
+  const previous = siblings[folderIndex - 1]?.position
+  const next = siblings[folderIndex + 1]?.position
+  const positions = positionsBetween(previous, next, children.length)
+  if (positions) {
+    return children.map((child, index) => ({ id: child.id, position: positions[index]! }))
+  }
+
+  const desired = [...siblings]
+  desired.splice(folderIndex, 1, ...children)
+  return desired.flatMap((row, index) => {
+    const position = (index + 1) * 1000
+    return row.parent_id === folder.id || row.position !== position ? [{ id: row.id, position }] : []
+  })
+}
+
+function positionsBetween(
+  previous: number | undefined,
+  next: number | undefined,
+  count: number,
+): number[] | null {
+  if (!count) return []
+  if (previous === undefined && next === undefined) {
+    return Array.from({ length: count }, (_, index) => (index + 1) * 1000)
+  }
+  if (previous === undefined) {
+    return Array.from({ length: count }, (_, index) => next! - (count - index) * 1000)
+  }
+  if (next === undefined) {
+    return Array.from({ length: count }, (_, index) => previous + (index + 1) * 1000)
+  }
+  const step = (next - previous) / (count + 1)
+  if (!Number.isFinite(step) || step <= 0) return null
+  const positions = Array.from({ length: count }, (_, index) => previous + step * (index + 1))
+  return positions.every((position, index) =>
+    Number.isFinite(position) &&
+    position > (index === 0 ? previous : positions[index - 1]!) &&
+    position < next,
+  ) ? positions : null
 }
 
 function validateParent(

@@ -130,7 +130,7 @@ export function BackupSettings() {
         {targets.length === 0 ? (<div className="rounded-[var(--r-lg)] border border-dashed border-[var(--border-default)]">
             <Empty art="archive" compact title={t("settings.no_backup_target_yet")} description={t("settings.add_a_webdav_or_s3_compatible_target_or_choose_a_common_provider_preset")} action={<Button size="sm" icon={<Plus size={13}/>} onClick={() => setEditing('new')}>{t("settings.add_first_target")}</Button>}/>
           </div>) : (<div className="space-y-2">
-            {targets.map((target) => (<TargetCard key={target.id} target={target} onEdit={() => setEditing(target)} onChanged={reload}/>))}
+            {targets.map((target) => (<TargetCard key={target.id} target={target} onEdit={() => setEditing(target)} onChanged={reload} onPatch={(id, patch) => setTargets((current) => current?.map((item) => item.id === id ? { ...item, ...patch } : item) ?? current)} onRemove={(id) => setTargets((current) => current?.filter((item) => item.id !== id) ?? current)} onRestore={(removed) => setTargets((current) => current && !current.some((item) => item.id === removed.id) ? [...current, removed] : current)}/>))}
           </div>)}
       </section>
 
@@ -162,10 +162,13 @@ export function BackupSettings() {
     </div>);
 }
 
-function TargetCard({ target, onEdit, onChanged, }: {
+function TargetCard({ target, onEdit, onChanged, onPatch, onRemove, onRestore, }: {
     target: BackupTarget;
     onEdit: () => void;
     onChanged: () => Promise<void>;
+    onPatch: (id: string, patch: Partial<BackupTarget>) => void;
+    onRemove: (id: string) => void;
+    onRestore: (target: BackupTarget) => void;
 }) {
     const toast = useUi((s) => s.toast);
     const [testing, setTesting] = useState(false);
@@ -219,11 +222,13 @@ function TargetCard({ target, onEdit, onChanged, }: {
                 return;
             actionRef.current = true;
             setUpdating(true);
+            onPatch(target.id, { enabled });
             try {
                 await api.backup.patch(target.id, { enabled } as Partial<BackupTargetInput>);
                 await onChanged();
             }
             catch (error) {
+                onPatch(target.id, { enabled: target.enabled });
                 toast({ title: t("settings.update_failed"), description: error instanceof ApiError ? error.message : String(error), tone: 'danger' });
             }
             finally {
@@ -270,11 +275,13 @@ function TargetCard({ target, onEdit, onChanged, }: {
                 });
                 if (!ok)
                     return;
+                onRemove(target.id);
                 await api.backup.remove(target.id);
                 toast({ title: t("settings.backup_target_deleted") });
                 await onChanged();
             }
             catch (error) {
+                onRestore(target);
                 toast({ title: t("common.delete_failed"), description: error instanceof ApiError ? error.message : String(error), tone: 'danger' });
             }
             finally {

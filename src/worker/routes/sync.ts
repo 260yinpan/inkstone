@@ -13,10 +13,7 @@ export const CHANGE_BOUNDS_SQL = `SELECT
   (SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq ASC LIMIT 1) AS lo,
   (SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT 1) AS hi`
 
-const FOLDER_SELECT = `f.id, f.parent_id, f.name, f.icon, f.position, f.created_at, f.updated_at,
-  (SELECT COUNT(*) FROM notes n
-     WHERE n.folder_id = f.id AND n.user_id = f.user_id
-       AND n.deleted_at IS NULL AND n.is_archived = 0) AS note_count`
+const FOLDER_SELECT = `f.id, f.parent_id, f.name, f.icon, f.position, f.created_at, f.updated_at`
 
 const TAG_SELECT = `t.id, t.name, t.color, t.created_at,
   (SELECT COUNT(*) FROM note_tags nt JOIN notes n ON n.id = nt.note_id
@@ -116,7 +113,8 @@ syncRoutes.get('/', requireAuth, async (c) => {
     ? (
         await c.env.DB.prepare(
           `SELECT ${FOLDER_SELECT} FROM folders f
-            WHERE f.user_id = ?1 AND f.deleted_at IS NULL ORDER BY f.position ASC`,
+            WHERE f.user_id = ?1 AND f.deleted_at IS NULL
+            ORDER BY f.position ASC, f.created_at ASC, f.id ASC`,
         )
           .bind(userId)
           .all<FolderRow>()

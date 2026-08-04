@@ -559,8 +559,24 @@ notesRoutes.post('/:id/duplicate', async (c) => {
   const userId = c.get('userId')
   const { ftsEnabled } = c.get('database')
   const source = await loadNoteRow(c.env.DB, userId, c.req.param('id'))
+  const body = c.req.header('Content-Type')?.includes('application/json')
+    ? await readJson<{ id?: string }>(c, JSON_BODY_LIMITS.small)
+    : {}
+  if (body.id !== undefined && !isValidId(body.id)) {
+    throw ApiError.badRequest('id must be a valid note id')
+  }
 
-  const id = newId()
+  const id = body.id ?? newId()
+  if (body.id) {
+    const existing = await c.env.DB.prepare(
+      `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
+    ).bind(id, userId).first<NoteRow>()
+    if (existing) return c.json(toNote(existing))
+    const collision = await c.env.DB.prepare(`SELECT user_id FROM notes WHERE id = ?1`)
+      .bind(id)
+      .first<{ user_id: string }>()
+    if (collision) throw ApiError.conflict('This note id is already in use')
+  }
   const now = Date.now()
   const title = duplicateNoteTitle(source.title, LIMITS.titleMaxLength)
   const content = source.content

@@ -46,6 +46,7 @@ export function CommandPalette({ onClose }: {
     const folders = useNotes((s) => s.folders);
     const openNote = useNotes((s) => s.openNote);
     const createNote = useNotes((s) => s.createNote);
+    const createFolder = useNotes((s) => s.createFolder);
     const deleteNote = useNotes((s) => s.deleteNote);
     const patchNote = useNotes((s) => s.patchNote);
     const activeNoteId = useUi((s) => s.activeNoteId);
@@ -102,16 +103,7 @@ export function CommandPalette({ onClose }: {
                 label: t("common.new_folder"),
                 icon: <FolderPlus size={14}/>,
                 group: t("command.commands"),
-                run: () => void api.folders
-                    .create({})
-                    .then(() => useNotes.getState().refreshFolders())
-                    .catch((error) => {
-                    useUi.getState().toast({
-                        title: t("sidebar.failed_to_create_folder"),
-                        description: error instanceof Error ? error.message : String(error),
-                        tone: 'danger',
-                    });
-                }),
+                run: () => void createFolder(),
             },
             ...(activeNote
                 ? [
@@ -255,6 +247,7 @@ export function CommandPalette({ onClose }: {
         appearanceTheme,
         locale,
         createNote,
+        createFolder,
         deleteNote,
         notes,
         openPanel,
@@ -323,11 +316,17 @@ export function CommandPalette({ onClose }: {
             score: match.score,
             run: () => openView('tag', { tag: item.name }),
         }));
+        const folderCounts = new Map<string, number>();
+        for (const note of Object.values(notes)) {
+            if (!note.folderId || note.deletedAt || note.isArchived)
+                continue;
+            folderCounts.set(note.folderId, (folderCounts.get(note.folderId) ?? 0) + 1);
+        }
         const matchedFolders = fuzzyFilter(folders, text, (f) => f.name, 5).map<Item>(({ item, match }) => ({
             id: `folder-${item.id}`,
             kind: 'folder',
             label: item.name,
-            detail: t("common.value0_notes", { value0: item.noteCount ?? 0 }),
+            detail: t("common.value0_notes", { value0: folderCounts.get(item.id) ?? 0 }),
             icon: <FolderPlus size={14}/>,
             group: t("navigation.folder"),
             score: match.score,

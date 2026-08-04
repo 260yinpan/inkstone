@@ -6,7 +6,6 @@ import { shortTime, groupLabel } from '../../lib/time';
 import { useNow } from '../../lib/hooks';
 import { fuzzyFilter, splitByRanges } from '../../lib/fuzzy';
 import { useBreakpoint } from '../../lib/hooks';
-import { api } from '../../lib/api';
 import { prettyCombo } from '../../lib/hotkeys';
 import { IconButton } from '../../components/primitives';
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
@@ -547,7 +546,7 @@ function groupNotes(items: {
     return groups.filter((g) => g.items.length);
 }
 function useEmptyTrash() {
-    const pull = useNotes((s) => s.pull);
+    const emptyTrashAction = useNotes((s) => s.emptyTrash);
     const toast = useUi((s) => s.toast);
     const [emptyingTrash, setEmptyingTrash] = useState(false);
     const busyRef = useRef(false);
@@ -565,12 +564,12 @@ function useEmptyTrash() {
             });
             if (!ok)
                 return;
-            const result = await api.notes.emptyTrash();
-            const refreshed = await pull({ force: true }).then(() => true, () => false);
+            const purged = await emptyTrashAction();
+            if (purged === null)
+                return;
             toast({
-                title: t("common.permanently_deleted_value0_notes", { value0: result.purged }),
-                description: refreshed ? undefined : t("settings.operation_completed_but_refresh_failed"),
-                tone: refreshed ? 'success' : 'warning',
+                title: t("common.permanently_deleted_value0_notes", { value0: purged }),
+                tone: 'success',
             });
         }
         catch (err) {

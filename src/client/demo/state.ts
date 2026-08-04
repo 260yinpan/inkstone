@@ -127,7 +127,7 @@ export function listFolders(state: DemoState): Folder[] {
         (note) => note.folderId === item.id && note.deletedAt === null,
       ).length,
     }))
-    .sort((left, right) => left.position - right.position || left.name.localeCompare(right.name))
+    .sort((left, right) => left.position - right.position || left.createdAt - right.createdAt || left.id.localeCompare(right.id))
 }
 
 export function listTags(state: DemoState): Tag[] {

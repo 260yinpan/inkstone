@@ -19,6 +19,7 @@ interface SessionState {
   refresh: () => Promise<void>
   refreshSettings: () => Promise<void>
   updateProfile: (patch: { name?: string; avatarUrl?: string }) => Promise<PublicUser>
+  updateRegistration: (enabled: boolean, password: string) => Promise<void>
   logout: () => Promise<void>
   updateSettings: (patch: DeepPartial<UserSettings>, options?: { silent?: boolean }) => void
 }
@@ -37,6 +38,7 @@ let settingsUserId: string | null = null
 let settingsRequestSequence = 0
 let sessionRequestSequence = 0
 let logoutPromise: Promise<void> | null = null
+let registrationMutationSequence = 0
 let sessionCacheTask: Promise<void> = Promise.resolve()
 let sessionCacheEpoch = 0
 
@@ -113,20 +115,65 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   async updateProfile(patch) {
-    const expectedUserId = get().user?.id
-    const user = await api.auth.updateProfile(patch)
-    const current = get().user
-    if (expectedUserId && user.id === expectedUserId && current?.id === expectedUserId) {
-      set({
-        user: {
-          ...user,
-          name: patch.name === undefined ? current.name : user.name,
-          avatarUrl: patch.avatarUrl === undefined ? current.avatarUrl : user.avatarUrl,
-        },
-      })
+    const before = get().user
+    if (before) {
+      set({ user: { ...before, ...patch } })
       cacheCurrentSession(get())
     }
-    return user
+    try {
+      const user = await api.auth.updateProfile(patch)
+      const current = get().user
+      if (current?.id === user.id) {
+        set({
+          user: {
+            ...user,
+            name: patch.name === undefined || current.name !== patch.name ? current.name : user.name,
+            avatarUrl: patch.avatarUrl === undefined || current.avatarUrl !== patch.avatarUrl
+              ? current.avatarUrl
+              : user.avatarUrl,
+          },
+        })
+        cacheCurrentSession(get())
+      }
+      return user
+    } catch (error) {
+      const current = get().user
+      if (before && current?.id === before.id) {
+        set({
+          user: {
+            ...current,
+            ...(patch.name !== undefined && current.name === patch.name ? { name: before.name } : {}),
+            ...(patch.avatarUrl !== undefined && current.avatarUrl === patch.avatarUrl
+              ? { avatarUrl: before.avatarUrl }
+              : {}),
+          },
+        })
+        cacheCurrentSession(get())
+      }
+      throw error
+    }
+  },
+
+  async updateRegistration(enabled, password) {
+    const before = get().site
+    const sequence = ++registrationMutationSequence
+    if (before) {
+      set({ site: { ...before, registrationOpen: enabled } })
+      cacheCurrentSession(get())
+    }
+    try {
+      const result = await api.auth.updateRegistration(enabled, password)
+      if (sequence === registrationMutationSequence && get().site) {
+        set({ site: { ...get().site!, registrationOpen: result.registrationOpen } })
+        cacheCurrentSession(get())
+      }
+    } catch (error) {
+      if (sequence === registrationMutationSequence && before) {
+        set({ site: before })
+        cacheCurrentSession(get())
+      }
+      throw error
+    }
   },
 
   async logout() {

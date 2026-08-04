@@ -18,6 +18,7 @@ export function DataSettings() {
     const statsEpoch = useRef(0);
     const mountedRef = useRef(true);
     const toast = useUi((s) => s.toast);
+    const emptyTrash = useNotes((s) => s.emptyTrash);
     const pull = useNotes((s) => s.pull);
     const loadStats = useCallback(async () => {
         if (!mountedRef.current)
@@ -215,13 +216,13 @@ export function DataSettings() {
             if (!ok)
                 return;
             try {
-                const res = await api.notes.emptyTrash();
-                const refreshed = await pull({ force: true }).then(() => true, () => false);
+                const purged = await emptyTrash();
+                if (purged === null)
+                    return;
                 void loadStats();
                 toast({
-                    title: t("common.permanently_deleted_value0_notes", { value0: res.purged }),
-                    description: refreshed ? undefined : t("settings.operation_completed_but_refresh_failed"),
-                    tone: refreshed ? 'success' : 'warning',
+                    title: t("common.permanently_deleted_value0_notes", { value0: purged }),
+                    tone: 'success',
                 });
             }
             catch (err) {

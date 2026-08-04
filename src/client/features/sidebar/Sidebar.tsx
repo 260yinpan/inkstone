@@ -1,9 +1,9 @@
 import { useMemo, useRef, useState } from 'react';
-import { Archive, ChevronRight, Clock, FilePlus2, FileText, FolderClosed, FolderOpen, FolderPlus, Hash, Inbox, LogOut, Moon, MoreHorizontal, PanelLeft, PanelLeftClose, Settings, Star, Sun, Trash2, Waypoints, } from 'lucide-react';
+import { Archive, ArrowDown, ArrowUp, ChevronRight, Clock, CornerUpLeft, FilePlus2, FileText, FolderClosed, FolderOpen, FolderPlus, Hash, Inbox, LogOut, Moon, MoreHorizontal, PanelLeft, PanelLeftClose, Settings, Star, Sun, Trash2, Waypoints, } from 'lucide-react';
+import { LIMITS } from '@shared/constants';
 import type { ViewKind } from '@shared/types';
 import { compareTagNames } from '@shared/markdown-utils';
 import { cn } from '../../lib/cn';
-import { api } from '../../lib/api';
 import { Avatar, IconButton, Logo, SectionLabel } from '../../components/primitives';
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
 import { switchThemeWithTransition, useUi } from '../../store/ui';
@@ -234,14 +234,16 @@ function ViewItem({ icon, label, view, count, active, onSelect, }: {
 }
 function FolderSection() {
     const tree = useFolderTree();
-    const refreshFolders = useNotes((s) => s.refreshFolders);
+    const createFolder = useNotes((s) => s.createFolder);
+    const patchFolder = useNotes((s) => s.patchFolder);
     const expandFolder = useUi((s) => s.expandFolder);
     const openView = useUi((s) => s.openView);
-    const toast = useUi((s) => s.toast);
     const [creating, setCreating] = useState(false);
     const creatingRef = useRef(false);
+    const movingIdsRef = useRef(new Set<string>());
     const [renamingId, setRenamingId] = useState<string | null>(null);
-    const create = async (parentId: string | null) => {
+    const [rootDropping, setRootDropping] = useState(false);
+    const create = (parentId: string | null) => {
         if (creatingRef.current)
             return;
         creatingRef.current = true;
@@ -254,8 +256,9 @@ function FolderSection() {
             activeNoteId: startingUi.activeNoteId,
         };
         try {
-            const folder = await api.folders.create({ parentId });
-            await refreshFolders();
+            const folderId = createFolder({ parentId });
+            if (!folderId)
+                return;
             const currentUi = useUi.getState();
             if (currentUi.view === startingNavigation.view &&
                 currentUi.folderId === startingNavigation.folderId &&
@@ -263,19 +266,52 @@ function FolderSection() {
                 currentUi.activeNoteId === startingNavigation.activeNoteId) {
                 if (parentId)
                     expandFolder(parentId);
-                openView('folder', { folderId: folder.id });
-                setRenamingId(folder.id);
+                openView('folder', { folderId });
+                setRenamingId(folderId);
             }
         }
-        catch (err) {
-            toast({ title: t("sidebar.failed_to_create_folder"), description: err instanceof Error ? err.message : String(err), tone: 'danger' });
-        }
         finally {
-            creatingRef.current = false;
-            setCreating(false);
+            queueMicrotask(() => {
+                creatingRef.current = false;
+                setCreating(false);
+            });
         }
     };
-    return (<section className="mt-4">
+    const move = (id: string, parentId: string | null, beforeId: string | null) => {
+        if (movingIdsRef.current.has(id))
+            return false;
+        movingIdsRef.current.add(id);
+        try {
+            if (!patchFolder(id, { parentId, beforeId }))
+                return false;
+            if (parentId)
+                expandFolder(parentId);
+            return true;
+        }
+        catch {
+            return false;
+        }
+        finally {
+            movingIdsRef.current.delete(id);
+        }
+    };
+    return (<section className={cn('mt-4 rounded-[var(--r-md)]', rootDropping && 'ring-1 ring-[var(--accent)]')} onDragOver={(event) => {
+            if (!event.dataTransfer.types.includes('application/x-inkstone-folder'))
+                return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            setRootDropping(true);
+        }} onDragLeave={(event) => {
+            if (leftDropTarget(event))
+                setRootDropping(false);
+        }} onDrop={(event) => {
+            const folderId = event.dataTransfer.getData('application/x-inkstone-folder');
+            if (!folderId)
+                return;
+            event.preventDefault();
+            setRootDropping(false);
+            void move(folderId, null, null);
+        }}>
       <div className="group/head flex items-center justify-between pr-1">
         <SectionLabel>{t("navigation.folder")}</SectionLabel>
         <Tooltip label={t("common.new_folder")}>
@@ -287,13 +323,18 @@ function FolderSection() {
 
       {tree.length === 0 ? (<button type="button" disabled={creating} onClick={() => void create(null)} className="mt-0.5 flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-[12px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-45 md:h-[30px]">
           <FolderPlus size={13}/>{t("sidebar.create_first_folder")}</button>) : (<div className="mt-0.5 space-y-px">
-          {tree.map((node) => (<FolderRow key={node.id} node={node} onCreateChild={create} renamingId={renamingId} onStartRename={setRenamingId} onFinishRename={() => setRenamingId(null)}/>))}
+          {tree.map((node, index) => (<FolderRow key={node.id} node={node} siblings={tree} index={index} parentNode={null} parentSiblings={[]} onCreateChild={create} onMove={move} renamingId={renamingId} onStartRename={setRenamingId} onFinishRename={() => setRenamingId(null)}/>))}
         </div>)}
     </section>);
 }
-function FolderRow({ node, onCreateChild, renamingId, onStartRename, onFinishRename, }: {
+function FolderRow({ node, siblings, index, parentNode, parentSiblings, onCreateChild, onMove, renamingId, onStartRename, onFinishRename, }: {
     node: FolderNode;
+    siblings: FolderNode[];
+    index: number;
+    parentNode: FolderNode | null;
+    parentSiblings: FolderNode[];
     onCreateChild: (parentId: string | null) => void;
+    onMove: (id: string, parentId: string | null, beforeId: string | null) => boolean;
     renamingId: string | null;
     onStartRename: (id: string) => void;
     onFinishRename: () => void;
@@ -303,10 +344,10 @@ function FolderRow({ node, onCreateChild, renamingId, onStartRename, onFinishRen
     const expanded = useUi((s) => s.expandedFolders.includes(node.id));
     const toggleFolder = useUi((s) => s.toggleFolder);
     const openView = useUi((s) => s.openView);
-    const refreshFolders = useNotes((s) => s.refreshFolders);
+    const patchFolder = useNotes((s) => s.patchFolder);
+    const deleteFolder = useNotes((s) => s.deleteFolder);
     const patchNote = useNotes((s) => s.patchNote);
-    const toast = useUi((s) => s.toast);
-    const [dropState, setDropState] = useState<'none' | 'inside'>('none');
+    const [dropState, setDropState] = useState<'none' | 'before' | 'inside' | 'after'>('none');
     const menu = useContextMenu();
     const buttonRef = useRef<HTMLDivElement>(null);
     const removingRef = useRef(false);
@@ -315,7 +356,8 @@ function FolderRow({ node, onCreateChild, renamingId, onStartRename, onFinishRen
     const active = view === 'folder' && activeFolderId === node.id;
     const hasChildren = node.children.length > 0;
     const renaming = renamingId === node.id;
-    const rename = async (name: string) => {
+    const canCreateChild = node.depth + 1 < LIMITS.folderDepthMax;
+    const rename = (name: string) => {
         const trimmed = name.trim();
         if (!trimmed || trimmed === node.name) {
             onFinishRename();
@@ -325,16 +367,10 @@ function FolderRow({ node, onCreateChild, renamingId, onStartRename, onFinishRen
             return;
         renamingRef.current = true;
         onFinishRename();
-        try {
-            await api.folders.patch(node.id, { name: trimmed });
-            await refreshFolders();
-        }
-        catch (err) {
-            toast({ title: t("sidebar.rename_failed"), description: err instanceof Error ? err.message : String(err), tone: 'danger' });
-        }
-        finally {
+        patchFolder(node.id, { name: trimmed });
+        queueMicrotask(() => {
             renamingRef.current = false;
-        }
+        });
     };
     const remove = async () => {
         if (removingRef.current)
@@ -351,23 +387,37 @@ function FolderRow({ node, onCreateChild, renamingId, onStartRename, onFinishRen
             });
             if (!ok)
                 return;
-            await api.folders.remove(node.id, 'move-up');
-            await refreshFolders();
-            const currentUi = useUi.getState();
-            if (currentUi.view === 'folder' && currentUi.folderId === node.id)
-                openView('all');
-        }
-        catch (err) {
-            toast({ title: t("common.delete_failed"), description: err instanceof Error ? err.message : String(err), tone: 'danger' });
+            deleteFolder(node.id);
         }
         finally {
             removingRef.current = false;
         }
     };
+    const moveEarlier = () => {
+        const previous = siblings[index - 1];
+        if (previous)
+            void onMove(node.id, node.parentId, previous.id);
+    };
+    const moveLater = () => {
+        if (index >= siblings.length - 1)
+            return;
+        void onMove(node.id, node.parentId, siblings[index + 2]?.id ?? null);
+    };
+    const moveOut = () => {
+        if (!parentNode)
+            return;
+        const parentIndex = parentSiblings.findIndex((folder) => folder.id === parentNode.id);
+        if (parentIndex < 0)
+            return;
+        void onMove(node.id, parentNode.parentId, parentSiblings[parentIndex + 1]?.id ?? null);
+    };
     const menuItems: MenuItem[] = [
         { id: 'rename', label: t("sidebar.rename"), onSelect: () => onStartRename(node.id) },
         { id: 'new-note', label: t("sidebar.create_new_note_here"), icon: <FilePlus2 size={13}/>, onSelect: () => void useNotes.getState().createNote({ folderId: node.id }) },
-        { id: 'new-child', label: t("sidebar.new_subfolder"), icon: <FolderPlus size={13}/>, onSelect: () => onCreateChild(node.id) },
+        { id: 'new-child', label: t("sidebar.new_subfolder"), icon: <FolderPlus size={13}/>, disabled: !canCreateChild, onSelect: () => onCreateChild(node.id) },
+        { id: 'move-earlier', label: t("sidebar.move_earlier"), icon: <ArrowUp size={13}/>, disabled: index === 0, separatorBefore: true, onSelect: moveEarlier },
+        { id: 'move-later', label: t("sidebar.move_later"), icon: <ArrowDown size={13}/>, disabled: index === siblings.length - 1, onSelect: moveLater },
+        { id: 'move-out', label: t("sidebar.move_out_one_level"), icon: <CornerUpLeft size={13}/>, disabled: !parentNode, onSelect: moveOut },
         { id: 'delete', label: t("sidebar.delete_folder"), tone: 'danger', separatorBefore: true, onSelect: () => void remove() },
     ];
     return (<div>
@@ -380,7 +430,14 @@ function FolderRow({ node, onCreateChild, renamingId, onStartRename, onFinishRen
                 return;
             e.preventDefault();
             e.stopPropagation();
-            setDropState('inside');
+            e.dataTransfer.dropEffect = 'move';
+            if (e.dataTransfer.types.includes('application/x-inkstone-note')) {
+                setDropState('inside');
+                return;
+            }
+            const rect = e.currentTarget.getBoundingClientRect();
+            const ratio = rect.height ? (e.clientY - rect.top) / rect.height : 0.5;
+            setDropState(ratio < 0.28 ? 'before' : ratio > 0.72 ? 'after' : 'inside');
         }} onDragLeave={(e) => {
             if (leftDropTarget(e))
                 setDropState('none');
@@ -395,10 +452,17 @@ function FolderRow({ node, onCreateChild, renamingId, onStartRename, onFinishRen
             }
             const folderId = e.dataTransfer.getData('application/x-inkstone-folder');
             if (folderId && folderId !== node.id) {
-                void api.folders
-                    .patch(folderId, { parentId: node.id })
-                    .then(refreshFolders)
-                    .catch((err) => toast({ title: t("sidebar.move_failed"), description: err instanceof Error ? err.message : String(err), tone: 'danger' }));
+                const rect = e.currentTarget.getBoundingClientRect();
+                const ratio = rect.height ? (e.clientY - rect.top) / rect.height : 0.5;
+                const placement = dropState === 'none'
+                    ? ratio < 0.28 ? 'before' : ratio > 0.72 ? 'after' : 'inside'
+                    : dropState;
+                if (placement === 'before')
+                    void onMove(folderId, node.parentId, node.id);
+                else if (placement === 'after')
+                    void onMove(folderId, node.parentId, siblings[index + 1]?.id ?? null);
+                else
+                    void onMove(folderId, node.id, null);
             }
         }} draggable={!renaming} onDragStart={(e) => {
             e.dataTransfer.setData('application/x-inkstone-folder', node.id);
@@ -406,6 +470,8 @@ function FolderRow({ node, onCreateChild, renamingId, onStartRename, onFinishRen
         }} className={cn('group relative flex h-10 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[30px]', 'transition-colors duration-[var(--dur-fast)]', active
             ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]', dropState === 'inside' && 'ring-1 ring-[var(--accent)]')} style={{ paddingLeft: 6 + node.depth * 13 }}>
+        {dropState === 'before' && <span aria-hidden="true" className="pointer-events-none absolute top-0 right-1 left-1 h-px bg-[var(--accent)]"/>}
+        {dropState === 'after' && <span aria-hidden="true" className="pointer-events-none absolute right-1 bottom-0 left-1 h-px bg-[var(--accent)]"/>}
         <Tooltip label={expanded ? t("sidebar.collapse") : t("sidebar.expand")} side="right">
           <button type="button" disabled={!hasChildren} aria-hidden={!hasChildren || undefined} tabIndex={hasChildren ? undefined : -1} onClick={(e) => {
                 e.stopPropagation();
@@ -448,7 +514,7 @@ function FolderRow({ node, onCreateChild, renamingId, onStartRename, onFinishRen
       </div>
 
       {expanded && hasChildren && (<div className="space-y-px">
-          {node.children.map((child) => (<FolderRow key={child.id} node={child} onCreateChild={onCreateChild} renamingId={renamingId} onStartRename={onStartRename} onFinishRename={onFinishRename}/>))}
+          {node.children.map((child, childIndex) => (<FolderRow key={child.id} node={child} siblings={node.children} index={childIndex} parentNode={node} parentSiblings={siblings} onCreateChild={onCreateChild} onMove={onMove} renamingId={renamingId} onStartRename={onStartRename} onFinishRename={onFinishRename}/>))}
         </div>)}
 
       <Menu anchor={buttonRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems}/>

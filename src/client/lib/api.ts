@@ -265,7 +265,8 @@ export const api = {
     remove: (id: string) => request<Note>(`/api/notes/${id}`, { method: 'DELETE' }),
     restore: (id: string) => request<Note>(`/api/notes/${id}/restore`, { method: 'POST' }),
     purge: (id: string) => request<{ ok: true; cursor: number }>(`/api/notes/${id}/purge`, { method: 'DELETE' }),
-    duplicate: (id: string) => request<Note>(`/api/notes/${id}/duplicate`, { method: 'POST' }),
+    duplicate: (id: string, body: { id?: string } = {}) =>
+      request<Note>(`/api/notes/${id}/duplicate`, { method: 'POST', body }),
     emptyTrash: () => request<{ purged: number }>('/api/notes/trash/empty', { method: 'POST' }),
     versions: (id: string) => request<{ versions: NoteVersionMeta[] }>(`/api/notes/${id}/versions`),
     version: (id: string, versionId: string) =>
@@ -277,9 +278,14 @@ export const api = {
 
   folders: {
     list: () => request<{ folders: Folder[] }>('/api/folders'),
-    create: (body: { name?: string; parentId?: string | null; icon?: string | null }) =>
+    create: (body: { id?: string; name?: string; parentId?: string | null; icon?: string | null }) =>
       request<Folder>('/api/folders', { method: 'POST', body }),
-    patch: (id: string, body: { name?: string; parentId?: string | null; icon?: string | null }) =>
+    patch: (id: string, body: {
+      name?: string
+      parentId?: string | null
+      beforeId?: string | null
+      icon?: string | null
+    }) =>
       request<Folder>(`/api/folders/${id}`, { method: 'PATCH', body }),
     remove: (id: string, strategy: 'move-up' | 'delete' = 'move-up') =>
       request<{ ok: true }>(`/api/folders/${id}?strategy=${strategy}`, { method: 'DELETE' }),

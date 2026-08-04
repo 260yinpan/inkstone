@@ -296,13 +296,28 @@ export function createDemoBackend(): DemoBackend {
   app.get('/api/folders', (c) => c.json({ folders: listFolders(state) }))
   app.post('/api/folders', async (c) => {
     const body = await jsonBody(c.req.raw)
+    const parentId = body.parentId === null || body.parentId === undefined
+      ? null
+      : typeof body.parentId === 'string' && state.folders.has(body.parentId)
+        ? body.parentId
+        : undefined
+    if (parentId === undefined) return apiError(400, 'bad_request', 'The parent folder does not exist')
+    if (parentId && demoFolderDepth(state, parentId) >= LIMITS.folderDepthMax) {
+      return apiError(400, 'bad_request', `Folder depth cannot exceed ${LIMITS.folderDepthMax} levels`)
+    }
     const now = Date.now()
+    const siblings = demoFolderSiblings(state, parentId)
+    const requestedName = typeof body.name === 'string' ? body.name.trim() : ''
+    const name = requestedName || availableDemoFolderName(siblings, 'New folder')
+    if (siblings.some((folder) => folder.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+      return apiError(409, 'conflict', 'A sibling already uses this name')
+    }
     const folder: Folder = {
       id: newDemoId(),
-      parentId: typeof body.parentId === 'string' && state.folders.has(body.parentId) ? body.parentId : null,
-      name: typeof body.name === 'string' && body.name.trim() ? body.name.trim() : 'New folder',
+      parentId,
+      name,
       icon: typeof body.icon === 'string' ? body.icon : null,
-      position: state.folders.size + 1,
+      position: (siblings.at(-1)?.position ?? 0) + 1000,
       createdAt: now,
       updatedAt: now,
       noteCount: 0,
@@ -315,20 +330,61 @@ export function createDemoBackend(): DemoBackend {
     const current = state.folders.get(c.req.param('id'))
     if (!current) return apiError(404, 'not_found', 'Folder not found')
     const body = await jsonBody(c.req.raw)
+    if ('beforeId' in body && !('parentId' in body)) {
+      return apiError(400, 'bad_request', 'parentId is required when reordering a folder')
+    }
+    const parentId = body.parentId === undefined
+      ? current.parentId
+      : body.parentId === null
+        ? null
+        : typeof body.parentId === 'string' && state.folders.has(body.parentId)
+          ? body.parentId
+          : undefined
+    if (parentId === undefined) return apiError(400, 'bad_request', 'The parent folder does not exist')
+    if (parentId === current.id || folderDescendants(state, current.id).has(parentId ?? '')) {
+      return apiError(400, 'bad_request', 'A folder cannot be moved into its own descendant')
+    }
+    if ((parentId ? demoFolderDepth(state, parentId) : 0) + demoFolderHeight(state, current.id) > LIMITS.folderDepthMax) {
+      return apiError(400, 'bad_request', `Folder depth cannot exceed ${LIMITS.folderDepthMax} levels`)
+    }
+    const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : current.name
+    if (demoFolderSiblings(state, parentId, current.id).some(
+      (folder) => folder.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
+    )) return apiError(409, 'conflict', 'A sibling already uses this name')
     const updated: Folder = {
       ...current,
-      name: typeof body.name === 'string' && body.name.trim() ? body.name.trim() : current.name,
-      parentId: body.parentId === null
-        ? null
-        : typeof body.parentId === 'string' && state.folders.has(body.parentId) && body.parentId !== current.id
-          ? body.parentId
-          : current.parentId,
+      name,
+      parentId,
       icon: body.icon === null || typeof body.icon === 'string' ? body.icon : current.icon,
       updatedAt: Date.now(),
     }
-    state.folders.set(updated.id, updated)
+    const shouldPlace = 'beforeId' in body || parentId !== current.parentId
+    if (shouldPlace) {
+      const siblings = demoFolderSiblings(state, parentId, current.id)
+      const beforeId = body.beforeId === null || body.beforeId === undefined
+        ? null
+        : typeof body.beforeId === 'string'
+          ? body.beforeId
+          : undefined
+      if (beforeId === undefined || beforeId === current.id) {
+        return apiError(400, 'bad_request', 'The target folder is invalid')
+      }
+      const index = beforeId === null ? siblings.length : siblings.findIndex((folder) => folder.id === beforeId)
+      if (index < 0) return apiError(400, 'bad_request', 'The target folder is not in the destination')
+      siblings.splice(index, 0, updated)
+      siblings.forEach((folder, orderIndex) => {
+        state.folders.set(folder.id, {
+          ...folder,
+          parentId,
+          position: (orderIndex + 1) * 1000,
+          updatedAt: folder.id === updated.id ? updated.updatedAt : folder.updatedAt,
+        })
+      })
+    } else {
+      state.folders.set(updated.id, updated)
+    }
     state.cursor++
-    return c.json(updated)
+    return c.json(state.folders.get(updated.id)!)
   })
   app.delete('/api/folders/:id', (c) => {
     const root = state.folders.get(c.req.param('id'))
@@ -344,11 +400,9 @@ export function createDemoBackend(): DemoBackend {
       }
       for (const id of descendants) state.folders.delete(id)
     } else {
+      promoteDemoFolderChildren(state, root)
       for (const note of state.notes.values()) {
         if (note.folderId === root.id) state.notes.set(note.id, { ...note, folderId: root.parentId })
-      }
-      for (const child of state.folders.values()) {
-        if (child.parentId === root.id) state.folders.set(child.id, { ...child, parentId: root.parentId })
       }
       state.folders.delete(root.id)
     }
@@ -745,6 +799,69 @@ function purgeNote(state: DemoState, id: string): void {
   state.versions.delete(id)
   state.shares.delete(id)
   state.cursor++
+}
+
+function demoFolderSiblings(
+  state: DemoState,
+  parentId: string | null,
+  excludeId?: string,
+): Folder[] {
+  return [...state.folders.values()]
+    .filter((folder) => folder.parentId === parentId && folder.id !== excludeId)
+    .sort((left, right) => left.position - right.position || left.createdAt - right.createdAt || left.id.localeCompare(right.id))
+}
+
+function availableDemoFolderName(siblings: Folder[], base: string): string {
+  const names = new Set(siblings.map((folder) => folder.name.toLocaleLowerCase()))
+  if (!names.has(base.toLocaleLowerCase())) return base
+  let suffix = 2
+  while (names.has(`${base} ${suffix}`.toLocaleLowerCase())) suffix++
+  return `${base} ${suffix}`
+}
+
+function demoFolderDepth(state: DemoState, id: string): number {
+  let depth = 1
+  let cursor = state.folders.get(id)?.parentId ?? null
+  const visited = new Set([id])
+  while (cursor && !visited.has(cursor)) {
+    visited.add(cursor)
+    depth++
+    cursor = state.folders.get(cursor)?.parentId ?? null
+  }
+  return depth
+}
+
+function demoFolderHeight(state: DemoState, rootId: string): number {
+  let height = 1
+  const queue: Array<[string, number]> = [[rootId, 1]]
+  const visited = new Set<string>()
+  while (queue.length) {
+    const [id, depth] = queue.shift()!
+    if (visited.has(id)) continue
+    visited.add(id)
+    height = Math.max(height, depth)
+    for (const folder of state.folders.values()) {
+      if (folder.parentId === id) queue.push([folder.id, depth + 1])
+    }
+  }
+  return height
+}
+
+function promoteDemoFolderChildren(state: DemoState, root: Folder): void {
+  const siblings = demoFolderSiblings(state, root.parentId)
+  const children = demoFolderSiblings(state, root.id)
+  const index = siblings.findIndex((folder) => folder.id === root.id)
+  if (index < 0) return
+  siblings.splice(index, 1, ...children)
+  const now = Date.now()
+  siblings.forEach((folder, orderIndex) => {
+    state.folders.set(folder.id, {
+      ...folder,
+      parentId: folder.parentId === root.id ? root.parentId : folder.parentId,
+      position: (orderIndex + 1) * 1000,
+      updatedAt: folder.parentId === root.id ? now : folder.updatedAt,
+    })
+  })
 }
 
 function folderDescendants(state: DemoState, rootId: string): Set<string> {

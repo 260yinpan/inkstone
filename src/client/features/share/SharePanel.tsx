@@ -133,6 +133,9 @@ export function SharePanel({ onClose }: {
             return;
         const noteId = note.id;
         const epoch = ++mutationEpoch.current;
+        const previousShare = share;
+        const previousUsePassword = usePassword;
+        const previousExpiry = expiry;
         loadEpoch.current++;
         busyRef.current = 'revoke';
         setBusy('revoke');
@@ -145,17 +148,20 @@ export function SharePanel({ onClose }: {
             });
             if (mutationEpoch.current !== epoch || noteIdRef.current !== noteId || !ok)
                 return;
-            await api.share.remove(noteId);
-            if (mutationEpoch.current !== epoch || noteIdRef.current !== noteId)
-                return;
             setShare(null);
             setUsePassword(false);
             setExpiry('0');
+            await api.share.remove(noteId);
+            if (mutationEpoch.current !== epoch || noteIdRef.current !== noteId)
+                return;
             toast({ title: t("share.link_revoked") });
         }
         catch (err) {
             if (mutationEpoch.current !== epoch || noteIdRef.current !== noteId)
                 return;
+            setShare(previousShare);
+            setUsePassword(previousUsePassword);
+            setExpiry(previousExpiry);
             toast({
                 title: t("common.action_failed"),
                 description: err instanceof ApiError ? err.message : String(err),

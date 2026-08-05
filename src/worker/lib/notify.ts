@@ -24,7 +24,18 @@ export async function commitChange(
 
 export async function broadcastCursor(c: Context<AppBindings>): Promise<number> {
   const userId = c.get('userId')
-  const cursor = await currentCursor(c.env.DB, userId)
-  c.executionCtx?.waitUntil(notifySyncHub(c.env.SYNC_HUB, userId, cursor, originOf(c)))
+  return broadcastUserCursor(c.env, userId, originOf(c), (task) => c.executionCtx?.waitUntil(task))
+}
+
+export async function broadcastUserCursor(
+  env: AppBindings['Bindings'],
+  userId: string,
+  origin: string | null = null,
+  waitUntil?: (task: Promise<unknown>) => void,
+): Promise<number> {
+  const cursor = await currentCursor(env.DB, userId)
+  const notification = notifySyncHub(env.SYNC_HUB, userId, cursor, origin)
+  if (waitUntil) waitUntil(notification)
+  else await notification
   return cursor
 }

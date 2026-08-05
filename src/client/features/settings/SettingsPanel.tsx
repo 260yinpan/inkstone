@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Cloud, Database, Info, Keyboard, Palette, RefreshCw, Type, UserRound, X, } from 'lucide-react';
+import { BrainCircuit, Cloud, Database, Info, Keyboard, Palette, RefreshCw, Type, UserRound, X, } from 'lucide-react';
 import { ACCENTS } from '@shared/constants';
 import { cn } from '../../lib/cn';
 import { Tooltip, useDialogFocus, useEscape, useLockScroll } from '../../components/overlay';
@@ -15,7 +15,8 @@ import { AboutSettings } from './AboutSettings';
 import { useUi } from '../../store/ui';
 import { t } from "../../lib/i18n";
 const BackupSettings = lazy(() => import('./BackupSettings').then((m) => ({ default: m.BackupSettings })));
-type Section = 'appearance' | 'editor' | 'backup' | 'sync' | 'account' | 'data' | 'about';
+const McpSettings = lazy(() => import('./McpSettings').then((m) => ({ default: m.McpSettings })));
+type Section = 'appearance' | 'editor' | 'backup' | 'sync' | 'mcp' | 'account' | 'data' | 'about';
 const SECTIONS: {
     id: Section;
     label: () => string;
@@ -25,6 +26,7 @@ const SECTIONS: {
     { id: 'editor', label: () => t("settings.editor"), icon: <Type size={14}/> },
     { id: 'backup', label: () => t("settings.backup"), icon: <Cloud size={14}/> },
     { id: 'sync', label: () => t("settings.sync"), icon: <RefreshCw size={14}/> },
+    { id: 'mcp', label: () => t("settings.mcp"), icon: <BrainCircuit size={14}/> },
     { id: 'account', label: () => t("settings.account"), icon: <UserRound size={14}/> },
     { id: 'data', label: () => t("settings.data"), icon: <Database size={14}/> },
     { id: 'about', label: () => t("settings.about"), icon: <Info size={14}/> },
@@ -92,6 +94,9 @@ export function SettingsPanel({ onClose }: {
             {section === 'appearance' && <AppearanceSettings accents={ACCENTS}/>}
             {section === 'editor' && <EditorSettings />}
             {section === 'sync' && <SyncSettings />}
+            {section === 'mcp' && (<Suspense fallback={<LoadingBlock label={t("settings.mcp_loading")}/>}> 
+                <McpSettings />
+              </Suspense>)}
             {section === 'account' && <AccountSettings />}
             {section === 'data' && <DataSettings />}
             {section === 'about' && <AboutSettings />}

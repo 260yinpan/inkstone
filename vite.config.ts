@@ -72,7 +72,7 @@ const getVendorChunkName = (id: string) => {
   return null
 }
 
-const config: UserConfigFnPromise = async ({ mode }) => ({
+const config: UserConfigFnPromise = async ({ mode, command }) => ({
   plugins: [
     react(),
     katexWoff2Only(),

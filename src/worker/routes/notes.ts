@@ -241,8 +241,8 @@ notesRoutes.post('/', async (c) => {
     .first<NoteRow>()
   if (!created) throw ApiError.conflict('This note id is already in use')
   await broadcastCursor(c)
-
-  return c.json(toNote(created), insertResult?.meta.changes ? 201 : 200)
+  const note = toNote(created)
+  return c.json(note, insertResult?.meta.changes ? 201 : 200)
 })
 
 notesRoutes.patch('/:id', async (c) => {
@@ -413,7 +413,8 @@ notesRoutes.patch('/:id', async (c) => {
     throw ApiError.conflict('This note was modified elsewhere', { server: current })
   }
   await broadcastCursor(c)
-  return c.json(await loadNote(c.env.DB, userId, id))
+  const note = await loadNote(c.env.DB, userId, id)
+  return c.json(note)
 })
 
 notesRoutes.delete('/:id', async (c) => {
@@ -456,7 +457,8 @@ notesRoutes.delete('/:id', async (c) => {
     throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(c.env.DB, userId, id) })
   }
   await broadcastCursor(c)
-  return c.json(await loadNote(c.env.DB, userId, id))
+  const note = await loadNote(c.env.DB, userId, id)
+  return c.json(note)
 })
 
 notesRoutes.post('/:id/restore', async (c) => {
@@ -494,7 +496,8 @@ notesRoutes.post('/:id/restore', async (c) => {
     throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(c.env.DB, userId, id) })
   }
   await broadcastCursor(c)
-  return c.json(await loadNote(c.env.DB, userId, id))
+  const note = await loadNote(c.env.DB, userId, id)
+  return c.json(note)
 })
 
 notesRoutes.delete('/:id/purge', async (c) => {
@@ -615,7 +618,8 @@ notesRoutes.post('/:id/duplicate', async (c) => {
   }).statements
   await c.env.DB.batch([insert, ...derived, changeStatement(c.env.DB, userId, 'note', id, 'upsert')])
   await broadcastCursor(c)
-  return c.json(await loadNote(c.env.DB, userId, id), 201)
+  const note = await loadNote(c.env.DB, userId, id)
+  return c.json(note, 201)
 })
 
 
@@ -737,7 +741,8 @@ notesRoutes.post('/:id/versions/:versionId/restore', async (c) => {
     throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(c.env.DB, userId, id) })
   }
   await broadcastCursor(c)
-  return c.json(await loadNote(c.env.DB, userId, id))
+  const note = await loadNote(c.env.DB, userId, id)
+  return c.json(note)
 })
 
 

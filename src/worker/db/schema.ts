@@ -9,6 +9,11 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     value TEXT NOT NULL
   )`,
 
+  `CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    applied_at INTEGER NOT NULL
+  )`,
+
   `CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
@@ -217,6 +222,39 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     locked_until INTEGER
   )`,
   `CREATE INDEX IF NOT EXISTS idx_login_attempts_last_fail ON login_attempts(last_fail_at)`,
+
+  `CREATE TABLE IF NOT EXISTS mcp_preferences (
+    user_id TEXT PRIMARY KEY,
+    write_enabled INTEGER NOT NULL DEFAULT 1 CHECK (write_enabled IN (0, 1)),
+    trash_enabled INTEGER NOT NULL DEFAULT 0 CHECK (trash_enabled IN (0, 1)),
+    updated_at INTEGER NOT NULL
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS mcp_operations (
+    user_id TEXT NOT NULL,
+    operation_id TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    response_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, operation_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_mcp_operations_created
+     ON mcp_operations(created_at)`,
+]
+
+interface SchemaMigration {
+  version: number
+  statements: readonly string[]
+}
+
+const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
+  {
+    version: 1,
+    statements: SCHEMA_STATEMENTS.filter((statement) =>
+      /(?:schema_migrations|mcp_preferences|mcp_operations|idx_mcp_)/.test(statement),
+    ),
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -258,6 +296,7 @@ const REQUIRED_ATTACHMENT_COLUMNS = [
 
 const REQUIRED_TABLES = [
   'app_meta',
+  'schema_migrations',
   'users',
   'folders',
   'notes',
@@ -275,6 +314,8 @@ const REQUIRED_TABLES = [
   'changes',
   'sessions',
   'login_attempts',
+  'mcp_preferences',
+  'mcp_operations',
 ] as const
 
 const REQUIRED_INDEXES = [
@@ -303,6 +344,7 @@ const REQUIRED_INDEXES = [
   'idx_sessions_user',
   'idx_sessions_expires',
   'idx_login_attempts_last_fail',
+  'idx_mcp_operations_created',
 ] as const
 
 
@@ -330,6 +372,7 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
   if (!initialized) {
     await db.batch(SCHEMA_STATEMENTS.map((statement) => db.prepare(statement)))
   }
+  await applyMigrations(db)
   await assertFinalSchema(db)
 
   let state: DatabaseState
@@ -350,6 +393,27 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
     }))
   }
   return state
+}
+
+async function applyMigrations(db: D1Database): Promise<void> {
+  await db.prepare(
+    `CREATE TABLE IF NOT EXISTS schema_migrations (
+       version INTEGER PRIMARY KEY,
+       applied_at INTEGER NOT NULL
+     )`,
+  ).run()
+  const { results } = await db.prepare(`SELECT version FROM schema_migrations`).all<{ version: number }>()
+  const applied = new Set(results.map((row) => row.version))
+
+  for (const migration of SCHEMA_MIGRATIONS) {
+    if (applied.has(migration.version)) continue
+    const statements = migration.statements.map((statement) => db.prepare(statement))
+    statements.push(
+      db.prepare(`INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?1, ?2)`)
+        .bind(migration.version, Date.now()),
+    )
+    await db.batch(statements)
+  }
 }
 
 async function readStoredDatabaseState(db: D1Database): Promise<DatabaseState | null> {
@@ -381,7 +445,7 @@ async function assertFinalSchema(db: D1Database): Promise<void> {
   const missingTables = REQUIRED_TABLES.filter((table) => !tables.has(table))
   if (missingTables.length) {
     throw new Error(
-      `The database does not match the current schema (missing tables: ${missingTables.join(', ')}). This pre-release build does not run migrations; clear the database and restart`,
+      `The database migration did not produce the required tables: ${missingTables.join(', ')}`,
     )
   }
 
@@ -392,7 +456,7 @@ async function assertFinalSchema(db: D1Database): Promise<void> {
   const missingIndexes = REQUIRED_INDEXES.filter((index) => !indexes.has(index))
   if (missingIndexes.length) {
     throw new Error(
-      `The database does not match the current schema (missing indexes: ${missingIndexes.join(', ')}). This pre-release build does not run migrations; clear the database and restart`,
+      `The database migration did not produce the required indexes: ${missingIndexes.join(', ')}`,
     )
   }
 
@@ -405,7 +469,7 @@ async function assertFinalSchema(db: D1Database): Promise<void> {
     const missing = required.filter((column) => !columns.has(column))
     if (missing.length) {
       throw new Error(
-        `The database does not match the current schema (${table} is missing ${missing.join(', ')}). This pre-release build does not run migrations; clear the database and restart`,
+        `The database schema is incompatible (${table} is missing ${missing.join(', ')})`,
       )
     }
   }

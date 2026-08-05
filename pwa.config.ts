@@ -52,9 +52,11 @@ export function inkstonePwa(): Plugin {
 }
 
 function serviceWorkerSource(cacheName: string, precache: string[]): string {
-  return `const CACHE_NAME = ${JSON.stringify(cacheName)}
-const PRECACHE_URLS = ${JSON.stringify(precache)}
-const CACHE_META_URL = '/.inkstone-cache-meta'
+	return `const CACHE_NAME = ${JSON.stringify(cacheName)}
+	const PRECACHE_URLS = ${JSON.stringify(precache)}
+	const CACHE_META_URL = '/.inkstone-cache-meta'
+	const NETWORK_ONLY_EXACT_PATHS = ['/authorize', '/mcp']
+	const NETWORK_ONLY_PATH_PREFIXES = ['/api/', '/authorize/', '/mcp/', '/oauth/', '/.well-known/']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -94,7 +96,11 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return
 
   const url = new URL(request.url)
-  if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return
+	  if (
+	    url.origin !== self.location.origin ||
+	    NETWORK_ONLY_EXACT_PATHS.includes(url.pathname) ||
+	    NETWORK_ONLY_PATH_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))
+	  ) return
 
   if (request.mode === 'navigate') {
     event.respondWith(

@@ -10,6 +10,7 @@ import type {
   GraphResponse,
   ImportResult,
   ListNotesResponse,
+  McpSettingsInfo,
   Note,
   NoteVersion,
   NoteVersionMeta,
@@ -344,6 +345,21 @@ export const api = {
         return settings
       }),
     stats: () => request<Record<string, number>>('/api/settings/stats'),
+  },
+
+  mcp: {
+    get: () => request<McpSettingsInfo>('/api/mcp'),
+    save: (body: {
+      enabled?: boolean
+      writeEnabled?: boolean
+      trashEnabled?: boolean
+    }) => request<{
+      enabled: boolean
+      preferences: McpSettingsInfo['preferences']
+      reconnectRequired: boolean
+    }>('/api/mcp', { method: 'PUT', body }),
+    revokeGrant: (id: string) => request<{ ok: true }>(`/api/mcp/grants/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    revokeAllGrants: () => request<{ ok: true; revoked: number }>('/api/mcp/grants/revoke-all', { method: 'POST' }),
   },
 
   update: {

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { Eye, FileText, ListTree, PencilLine } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { registerAll } from '../../lib/hotkeys';
@@ -29,6 +29,19 @@ export function AppShell() {
     const checkForUpdates = useUpdate((s) => s.check);
     useSyncEngine();
     useGlobalHotkeys();
+    const hydrated = useNotes((s) => s.hydrated);
+    const openNote = useNotes((s) => s.openNote);
+    const deepLinkHandled = useRef(false);
+    useEffect(() => {
+        if (!hydrated || deepLinkHandled.current)
+            return;
+        deepLinkHandled.current = true;
+        const match = /^\/n\/([0-9a-hjkmnp-tv-z]{26})\/?$/.exec(location.pathname);
+        if (!match)
+            return;
+        useUi.getState().openView('all');
+        void openNote(match[1]!);
+    }, [hydrated, openNote]);
     useEffect(() => {
         if (role === 'owner')
             void checkForUpdates();

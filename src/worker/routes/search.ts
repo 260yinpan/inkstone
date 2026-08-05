@@ -35,11 +35,25 @@ export function parseQuery(raw: string): ParsedQuery {
     trash: false,
   }
   const plain: string[] = []
-  const tokenRe = /"([^"]*)"|(\S+)/g
+  const tokenRe = /([A-Za-z]+):"([^"]*)"|"([^"]*)"|(\S+)/g
 
   for (const m of raw.matchAll(tokenRe)) {
-    const quoted = m[1]
-    const bare = m[2]
+    const quotedKey = m[1]
+    const quotedValue = m[2]
+    const quoted = m[3]
+    const bare = m[4]
+    if (quotedKey !== undefined) {
+      const key = quotedKey.toLowerCase()
+      const value = quotedValue?.trim() ?? ''
+      if (key === 'tag' && value) parsed.tags.push(value.replace(/^#/, ''))
+      else if (key === 'folder' && value) parsed.folder = value
+      else if (value) {
+        const token = `${quotedKey}:${value}`
+        parsed.terms.push(token)
+        plain.push(token)
+      }
+      continue
+    }
     if (quoted !== undefined) {
       if (quoted.trim()) {
         parsed.terms.push(quoted.trim())
@@ -88,6 +102,35 @@ export function parseQuery(raw: string): ParsedQuery {
   return parsed
 }
 
+export interface UserSearchResult {
+  results: SearchHit[]
+  mode: 'fts' | 'like'
+  query: ParsedQuery
+}
+
+export async function searchUserNotes(
+  db: D1Database,
+  userId: string,
+  raw: string,
+  limit: number,
+  ftsEnabled: boolean,
+): Promise<UserSearchResult> {
+  const query = parseQuery(truncateText(raw.trim(), 512))
+  if (!raw.trim()) return { results: [], mode: ftsEnabled ? 'fts' : 'like', query }
+
+  if (ftsEnabled && query.terms.length && !query.trash) {
+    try {
+      return { results: await ftsSearch(db, userId, query, limit), mode: 'fts', query }
+    } catch (error) {
+      console.warn(
+        '[inkstone] FTS query failed; falling back to LIKE:',
+        error instanceof Error ? error.message : error,
+      )
+    }
+  }
+  return { results: await likeSearch(db, userId, query, limit), mode: 'like', query }
+}
+
 
 function buildFtsQuery(terms: string[]): string {
   const parts: string[] = []
@@ -117,28 +160,13 @@ searchRoutes.get('/search', requireAuth, async (c) => {
     return c.json(empty)
   }
 
-  const q = parseQuery(raw)
   const { ftsEnabled } = c.get('database')
-
-  let hits: SearchHit[] = []
-  let mode: 'fts' | 'like' = 'like'
-
-
-  if (ftsEnabled && q.terms.length && !q.trash) {
-    try {
-      hits = await ftsSearch(c.env.DB, userId, q, limit)
-      mode = 'fts'
-    } catch (err) {
-      console.warn('[inkstone] FTS query failed; falling back to LIKE:', err instanceof Error ? err.message : err)
-      hits = await likeSearch(c.env.DB, userId, q, limit)
-    }
-  } else {
-    hits = await likeSearch(c.env.DB, userId, q, limit)
-  }
+  const result = await searchUserNotes(c.env.DB, userId, raw, limit, ftsEnabled)
+  const q = result.query
 
   const body: SearchResponse = {
-    results: hits,
-    mode,
+    results: result.results,
+    mode: result.mode,
     took: Date.now() - started,
     query: {
       text: q.text,

@@ -24,9 +24,11 @@
     "build:kv": "tsc -b && vite build --mode kv",
     "build:demo": "tsc -b && vite build --mode demo",
     "preview": "npm run build && vite preview",
-    "deploy": "npm run build && wrangler deploy",
-    "deploy:kv": "npm run build:kv && wrangler deploy",
-    "deploy:demo": "npm run build:demo && wrangler deploy --config wrangler.demo.toml",
+    "deploy": "npm run build && npx wrangler deploy --config dist/inkstone/wrangler.json",
+    "deploy:kv": "npm run build:kv && npx wrangler deploy --config dist/inkstone/wrangler.json",
+    "deploy:check": "npm run build && npx wrangler deploy --dry-run --config dist/inkstone/wrangler.json",
+    "deploy:check:kv": "npm run build:kv && npx wrangler deploy --dry-run --config dist/inkstone/wrangler.json",
+    "deploy:demo": "npm run build:demo && npx wrangler deploy --config wrangler.demo.toml",
     "typecheck": "tsc -b",
     "typecheck:force": "tsc -b --force",
     "test:unit": "vitest run --config vitest.config.ts",
@@ -37,6 +39,7 @@
     "cf-typegen:kv": "wrangler types --config wrangler.kv.toml"
   },
   "dependencies": {
+    "@cloudflare/workers-oauth-provider": "0.10.0",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.10.4",
     "@codemirror/lang-cpp": "^6.0.3",
@@ -61,10 +64,12 @@
     "@dicebear/micah": "^9.4.3",
     "@fontsource-variable/inter": "^5.3.0",
     "@lezer/highlight": "^1.2.3",
+    "@modelcontextprotocol/server": "2.0.0",
     "@shikijs/core": "^4.3.1",
     "@shikijs/engine-oniguruma": "^4.3.1",
     "@shikijs/langs": "^4.3.1",
     "@shikijs/themes": "^4.3.1",
+    "agents": "0.20.1",
     "aws4fetch": "^1.0.20",
     "clsx": "^2.1.1",
     "dompurify": "^3.4.12",
@@ -87,6 +92,7 @@
     "react-dom": "^19.2.8",
     "tailwind-merge": "^3.6.0",
     "yaml": "^2.9.0",
+    "zod": "4.4.3",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
@@ -103,6 +109,6 @@
     "typescript": "^5.9.3",
     "vite": "^8.2.0",
     "vitest": "^4.1.10",
-    "wrangler": "^4.114.0"
+    "wrangler": "^4.118.0"
   }
 }

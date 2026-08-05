@@ -441,6 +441,37 @@ export interface ImportResult {
 }
 
 
+export interface McpPreferences {
+  writeEnabled: boolean
+  trashEnabled: boolean
+  updatedAt: number
+}
+
+export interface McpGrant {
+  id: string
+  clientId: string
+  clientName: string
+  clientUri: string | null
+  scopes: string[]
+  createdAt: number
+  expiresAt: number | null
+}
+
+export interface McpSettingsInfo {
+  enabled: boolean
+  canManageGlobal: boolean
+  endpoint: string
+  oauth: true
+  preferences: McpPreferences
+  grants: McpGrant[]
+  privacy: {
+    publicEndpoint: false
+    perUserIndex: true
+    externalClientReceivesSelectedContent: true
+  }
+}
+
+
 export interface ApiErrorBody {
   error: {
     code: string

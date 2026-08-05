@@ -15,6 +15,8 @@ import { settingsRoutes } from './routes/settings'
 import { shareManageRoutes, sharePageRoutes, shareRoutes } from './routes/share'
 import { transferRoutes } from './routes/transfer'
 import { updateRoutes } from './routes/update'
+import { mcpAuthorizeRoutes } from './routes/mcp-authorize'
+import { mcpSettingsRoutes } from './routes/mcp-settings'
 import type { AppBindings } from './env'
 import { selectAttachmentStorage } from './attachments/backend'
 
@@ -46,9 +48,14 @@ export function createApp() {
     c.set('database', await initializeDatabase(c.env))
     await next()
   })
+  app.use('/authorize', async (c, next) => {
+    c.set('database', await initializeDatabase(c.env))
+    await next()
+  })
 
   app.use('/api/*', requireClientHeader)
   app.use('/api/*', loadSession)
+  app.use('/authorize', loadSession)
 
   app.get('/api/health', async (c) => {
     const database = c.get('database')
@@ -61,6 +68,7 @@ export function createApp() {
       attachmentStorage: selectAttachmentStorage(c.env),
       realtime: Boolean(c.env.SYNC_HUB),
       credentialVault: Boolean(c.env.CREDENTIAL_VAULT),
+      mcp: Boolean(c.env.OAUTH_KV),
       time: Date.now(),
     })
   })
@@ -76,6 +84,7 @@ export function createApp() {
   app.route('/api/backup', backupRoutes)
   app.route('/api/settings', settingsRoutes)
   app.route('/api/update', updateRoutes)
+  app.route('/api/mcp', mcpSettingsRoutes)
   app.route('/api/share', shareManageRoutes)
   app.route('/api/public', shareRoutes)
   app.route('/api', transferRoutes)
@@ -86,6 +95,7 @@ export function createApp() {
 
 
   app.route('/s', sharePageRoutes)
+  app.route('/', mcpAuthorizeRoutes)
 
 
   app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw))

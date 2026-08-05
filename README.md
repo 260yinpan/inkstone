@@ -31,6 +31,7 @@ Every new account automatically receives two standard starter notes, one in Chin
 | Markdown | Tables, task lists, footnotes, definition lists, callouts, tabs, **details blocks**, **math**, **Mermaid diagrams**, **syntax highlighting**, **Front Matter**, and Pandoc-style attributes |
 | Organization | Nested folders, inline tags, favorites, pinning, archive, trash, **wiki links**, backlinks, block references, note embeds, and a relationship graph |
 | Search | D1 FTS5 **full-text search** with Chinese indexing, filters, recent notes, and command-palette navigation |
+| **MCP** | Private remote MCP, OAuth 2.1 authorization, standard `search`/`fetch`, bounded reads, safe writes, and grant management |
 | Reliability | Installable PWA, offline app launch, browser-side cache, **offline write queue, optimistic concurrency control**, conflict copies, realtime notifications, and polling fallback |
 | Sharing | Public note links with optional access passwords and expiration dates |
 | Portability | JSON and ZIP exports, directly readable **Markdown**, attachment export, and **manual or scheduled WebDAV/S3 backups** |
@@ -42,6 +43,7 @@ Every new account automatically receives two standard starter notes, one in Chin
 | --- | --- |
 | Cloudflare D1 | Accounts, notes, folders, tags, settings, versions, shares, and search indexes |
 | Cloudflare R2 or Workers KV | Attachment and uploaded-avatar binaries through the `FILES` or `FILES_KV` binding |
+| Workers KV `OAUTH_KV` | OAuth client registrations, authorization codes, access and refresh tokens, and grants; note bodies are not stored here |
 | Browser IndexedDB | Local cache and pending offline writes |
 | `SyncHub` Durable Object | Realtime change notifications between active clients |
 | `CredentialVault` Durable Object | Isolated storage for the key used to encrypt backup credentials |
@@ -101,3 +103,4 @@ Read [`SECURITY.md`](./SECURITY.md) before reporting a vulnerability. Developmen
 ## License
 
 Inkstone is distributed under the [GNU Lesser General Public License v3.0 only](./LICENSE), using the SPDX identifier `LGPL-3.0-only`.
+

@@ -32,6 +32,7 @@ Inkstone 是运行在 Cloudflare workers的浏览器笔记本。笔记始终是�
 | Markdown | 表格、任务列表、脚注、定义列表、Callout、标签页、**折叠块**、**数学公式**、**Mermaid**、**代码高亮**、**Front Matter**、Pandoc 属性 |
 | 整理 | 多级文件夹、正文标签、收藏、置顶、归档、回收站、**Wiki 双链**、反向链接、块引用、笔记嵌入、关系图谱 |
 | 搜索 | 基于 D1 FTS5 的全**文搜索**、中文索引、条件筛选、最近笔记和命令面板 |
+| **MCP** | 私有远程 MCP、OAuth 2.1 授权、标准 `search`/`fetch`、分段读取、安全写入、客户端授权管理 |
 | 可靠性 | 可安装 PWA、离线启动、浏览器本地缓存、**离线写入队列、乐观并发控制**、冲突副本、实时通知和轮询降级 |
 | 分享 | 可设置访问口令和有效期的公开笔记链接 |
 | 可迁移性 | JSON 与 ZIP 导出、可直接阅读的 **Markdown**、附件导出、**手动或定时 WebDAV/S3 备份** |
@@ -43,6 +44,7 @@ Inkstone 是运行在 Cloudflare workers的浏览器笔记本。笔记始终是�
 | --- | --- |
 | Cloudflare D1 | 账号、笔记、文件夹、标签、设置、版本、分享和搜索索引 |
 | Cloudflare R2 或 Workers KV | 通过 `FILES` 或 `FILES_KV` 绑定存放附件及上传头像的二进制 |
+| Workers KV `OAUTH_KV` | OAuth 客户端注册、授权码、访问令牌、刷新令牌和授权记录；不存放笔记正文 |
 | 浏览器 IndexedDB | 本地缓存与尚未上传的离线写入 |
 | `SyncHub` Durable Object | 在线客户端之间的实时变更通知 |
 | `CredentialVault` Durable Object | 隔离保存用于加密备份凭据的密钥 |

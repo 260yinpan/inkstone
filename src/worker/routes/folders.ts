@@ -315,6 +315,11 @@ foldersRoutes.delete('/:id', async (c) => {
          SELECT ?2, 'note', id, 'upsert', ?4 FROM notes
           WHERE user_id = ?2 AND folder_id IN (SELECT id FROM subtree)`,
       ).bind(id, userId, row.updated_at, now),
+      c.env.DB.prepare(
+        `${tree} INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
+         SELECT ?2, id, 'delete', ?4 FROM notes
+          WHERE user_id = ?2 AND folder_id IN (SELECT id FROM subtree)`,
+      ).bind(id, userId, row.updated_at, now),
       c.env.DB.prepare(`${tree} DELETE FROM links WHERE source_note_id IN (${noteIds})`)
         .bind(id, userId, row.updated_at),
       c.env.DB.prepare(

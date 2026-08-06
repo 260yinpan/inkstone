@@ -146,6 +146,11 @@ notesRoutes.post('/trash/empty', async (c) => {
       )
     }
     statements.push(
+      c.env.DB.prepare(
+        `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
+         SELECT ?1, id, 'delete', ?2
+           FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`,
+      ).bind(userId, Date.now()),
       c.env.DB
         .prepare(
           `INSERT INTO changes (user_id, entity, entity_id, op, at)
@@ -157,14 +162,9 @@ notesRoutes.post('/trash/empty', async (c) => {
       c.env.DB
         .prepare(`DELETE FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`)
         .bind(userId),
-      c.env.DB.prepare(
-        `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
-         SELECT ?1, id, 'delete', ?2
-           FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`,
-      ).bind(userId, Date.now()),
     )
     const results = await c.env.DB.batch(statements)
-    const changeResult = results.at(-3) as D1Result<{ seq: number }> | undefined
+    const changeResult = results.at(-2) as D1Result<{ seq: number }> | undefined
     await broadcastCursor(c, changeResult?.results?.[0]?.seq)
     scheduleFtsDrain(c)
   }
@@ -479,6 +479,12 @@ notesRoutes.delete('/:id', async (c) => {
   }
   statements.push(
     c.env.DB.prepare(
+      `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
+       SELECT ?1, ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}`,
+    ).bind(userId, id, now, id, userId, nextRev),
+  )
+  statements.push(
+    c.env.DB.prepare(
       `INSERT INTO changes (user_id, entity, entity_id, op, at)
        SELECT ?1, 'note', ?2, 'upsert', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
        RETURNING seq`,
@@ -582,6 +588,12 @@ notesRoutes.delete('/:id/purge', async (c) => {
   }
   statements.push(
     c.env.DB.prepare(
+      `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
+       SELECT ?1, ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}`,
+    ).bind(userId, id, Date.now(), id, userId, row.rev),
+  )
+  statements.push(
+    c.env.DB.prepare(
       `INSERT INTO changes (user_id, entity, entity_id, op, at)
        SELECT ?1, 'note', ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
        RETURNING seq`,
@@ -591,14 +603,10 @@ notesRoutes.delete('/:id/purge', async (c) => {
     ).bind(id, userId, row.rev),
     c.env.DB.prepare(`DELETE FROM tags WHERE user_id = ?1 AND id NOT IN (SELECT tag_id FROM note_tags)`)
       .bind(userId),
-    c.env.DB.prepare(
-      `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
-       SELECT ?1, ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}`,
-    ).bind(userId, id, Date.now(), id, userId, row.rev),
   )
   const results = await c.env.DB.batch(statements)
-  const changeResult = results.at(-4) as D1Result<{ seq: number }> | undefined
-  const deleted = results.at(-3)
+  const changeResult = results.at(-3) as D1Result<{ seq: number }> | undefined
+  const deleted = results.at(-2)
   if (!deleted?.meta.changes) throw ApiError.conflict('Note state changed. Refresh and try again')
   const broadcastedCursor = await broadcastCursor(c, changeResult?.results?.[0]?.seq)
   const deletionCursor = changeResult?.results[0]?.seq

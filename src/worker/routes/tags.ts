@@ -64,7 +64,7 @@ tagsRoutes.patch('/:id', async (c) => {
     if (/[\s#]/.test(next)) throw ApiError.badRequest('Tag names cannot contain spaces or #')
 
     if (next !== tag.name) {
-      const rewritten = await rewriteTagInNotes(c, userId, id, tag.name, next)
+      const rewrite = await rewriteTagInNotes(c, userId, id, tag.name, next)
       const now = Date.now()
       const targetId = newId()
       const explicitColor = body.color !== undefined ? 1 : 0
@@ -102,13 +102,22 @@ tagsRoutes.patch('/:id', async (c) => {
         c.env.DB.prepare(`DELETE FROM tags WHERE id = ?1 AND user_id = ?2 AND name = ?3`)
           .bind(id, userId, tag.name),
       ]
-      const results = await c.env.DB.batch(statements)
-      if (!results.at(-1)?.meta.changes) {
-        throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
+      try {
+        const results = await c.env.DB.batch(statements)
+        if (!results.at(-1)?.meta.changes) {
+          throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
+        }
+      } catch (error) {
+        try {
+          await rewrite.rollback()
+        } catch {
+          throw ApiError.conflict('Tag rename could not be rolled back safely; refresh and try again')
+        }
+        throw error
       }
       await broadcastCursor(c)
       scheduleFtsDrain(c)
-      return c.json({ ok: true, renamed: rewritten })
+      return c.json({ ok: true, renamed: rewrite.rewritten })
     }
   }
 
@@ -145,7 +154,7 @@ tagsRoutes.delete('/:id', async (c) => {
     .first<{ id: string; name: string }>()
   if (!tag) throw ApiError.notFound('Tag not found')
 
-  const affected = await rewriteTagInNotes(c, userId, id, tag.name, null)
+  const rewrite = await rewriteTagInNotes(c, userId, id, tag.name, null)
 
   const now = Date.now()
   const guard = `EXISTS (SELECT 1 FROM tags WHERE id = ?1 AND user_id = ?2 AND name = ?3)`
@@ -159,12 +168,28 @@ tagsRoutes.delete('/:id', async (c) => {
     c.env.DB.prepare(`DELETE FROM tags WHERE id = ?1 AND user_id = ?2 AND name = ?3`)
       .bind(id, userId, tag.name),
   ]
-  const outcomes = await c.env.DB.batch(statements)
-  if (!outcomes.at(-1)?.meta.changes) throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
+  try {
+    const outcomes = await c.env.DB.batch(statements)
+    if (!outcomes.at(-1)?.meta.changes) {
+      throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
+    }
+  } catch (error) {
+    try {
+      await rewrite.rollback()
+    } catch {
+      throw ApiError.conflict('Tag deletion could not be rolled back safely; refresh and try again')
+    }
+    throw error
+  }
   await broadcastCursor(c)
   scheduleFtsDrain(c)
-  return c.json({ ok: true, affected })
+  return c.json({ ok: true, affected: rewrite.rewritten })
 })
+
+interface TagRewriteResult {
+  rewritten: number
+  rollback: () => Promise<void>
+}
 
 async function rewriteTagInNotes(
   c: Context<AppBindings>,
@@ -172,7 +197,7 @@ async function rewriteTagInNotes(
   tagId: string,
   from: string,
   to: string | null,
-): Promise<number> {
+): Promise<TagRewriteResult> {
   const { ftsEnabled } = c.get('database')
   const { results } = await c.env.DB.prepare(
     `SELECT n.id FROM notes n
@@ -183,7 +208,9 @@ async function rewriteTagInNotes(
     .all<{ id: string }>()
 
   let rewritten = 0
-  for (const candidate of results) {
+  const rewrittenNotes: RewrittenTagNote[] = []
+  try {
+    for (const candidate of results) {
     let complete = false
     for (let attempt = 0; attempt < 5; attempt++) {
       const note = await c.env.DB.prepare(
@@ -283,6 +310,7 @@ async function rewriteTagInNotes(
       const [updated] = await c.env.DB.batch(statements)
       if (updated?.meta.changes) {
         rewritten++
+        rewrittenNotes.push({ note, nextRev, updatedAt: now })
         complete = true
         break
       }
@@ -291,7 +319,86 @@ async function rewriteTagInNotes(
       throw ApiError.conflict(`Some notes are still being edited. Safely completed ${rewritten} notes; try again later`)
     }
   }
-  return rewritten
+    return {
+      rewritten,
+      rollback: () => rollbackTagRewrites(c, userId, rewrittenNotes),
+    }
+  } catch (error) {
+    try {
+      await rollbackTagRewrites(c, userId, rewrittenNotes)
+    } catch {
+      throw ApiError.conflict('Tag rename could not be rolled back safely; refresh and try again')
+    }
+    throw error
+  }
+}
+
+interface RewrittenTagNote {
+  note: {
+    id: string
+    title: string
+    content: string
+    rev: number
+    updated_at: number
+    deleted_at: number | null
+  }
+  nextRev: number
+  updatedAt: number
+}
+
+async function rollbackTagRewrites(
+  c: Context<AppBindings>,
+  userId: string,
+  rewrittenNotes: readonly RewrittenTagNote[],
+): Promise<void> {
+  const { ftsEnabled } = c.get('database')
+  for (const rewritten of [...rewrittenNotes].reverse()) {
+    const { note, nextRev, updatedAt } = rewritten
+    const hash = await sha256Hex(note.content)
+    const { words, chars } = countText(note.content)
+    const update = c.env.DB.prepare(
+      `UPDATE notes SET content = ?1, excerpt = ?2, word_count = ?3, char_count = ?4,
+         content_hash = ?5, rev = ?6, updated_at = ?7
+        WHERE id = ?8 AND user_id = ?9 AND rev = ?10 AND updated_at = ?11`,
+    ).bind(
+      note.content,
+      deriveExcerpt(note.content),
+      words,
+      chars,
+      hash,
+      note.rev,
+      note.updated_at,
+      note.id,
+      userId,
+      nextRev,
+      updatedAt,
+    )
+    const statements: D1PreparedStatement[] = [update]
+    if (note.deleted_at === null) {
+      statements.push(...buildNoteDerivedStatements({
+        db: c.env.DB,
+        userId,
+        noteId: note.id,
+        title: note.title,
+        content: note.content,
+        ftsEnabled,
+        expectedRev: note.rev,
+        expectedContentHash: hash,
+        expectedTitle: note.title,
+        expectedUpdatedAt: note.updated_at,
+      }).statements)
+    }
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?1, 'note', ?2, 'upsert', ?3
+          WHERE EXISTS (SELECT 1 FROM notes
+            WHERE id = ?2 AND user_id = ?1 AND rev = ?4 AND updated_at = ?5)`,
+      ).bind(userId, note.id, Date.now(), note.rev, note.updated_at),
+    )
+    const [restored] = await c.env.DB.batch(statements)
+    if (!restored?.meta.changes) throw new Error('tag rewrite rollback conflict')
+  }
 }
 
 function shiftSqlPlaceholders(sql: string, offset: number): string {

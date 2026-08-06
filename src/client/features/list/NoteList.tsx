@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDownWideNarrow, CheckSquare2, Copy, FileCode, FileDown, FileText, FolderInput, MoreHorizontal, Pin, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, } from 'lucide-react';
+import { Archive, ArrowDownWideNarrow, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, MoreHorizontal, Pin, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, } from 'lucide-react';
 import type { NoteSummary, SortKey, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { shortTime, groupLabel } from '../../lib/time';
@@ -207,6 +207,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, now, onRangeSe
     const locale = useLocale();
     const toast = useUi((s) => s.toast);
     const active = useUi((s) => s.activeNoteId === note.id);
+    const openInSecondary = useUi((s) => s.workspaceSecondaryNoteId === note.id);
     const selectedIds = useUi((s) => s.selectedIds);
     const selected = selectedIds.includes(note.id);
     const selectionHighlighted = selected && (selectedIds.length > 1 || !active);
@@ -288,6 +289,12 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, now, onRangeSe
             },
         ]
         : [
+            ...(breakpoint === 'desktop' ? [{
+                id: 'open-side',
+                label: t("notes.open_to_side"),
+                icon: <Columns2 size={13}/>,
+                onSelect: () => void openNote(note.id, { pane: 'secondary' }),
+            } satisfies MenuItem] : []),
             ...(breakpoint === 'mobile' ? [{
                 id: 'multi-select',
                 label: t("notes.add_to_selection"),
@@ -341,6 +348,11 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, now, onRangeSe
             e.dataTransfer.setData('application/x-inkstone-note', note.id);
             e.dataTransfer.effectAllowed = 'move';
         }} onClick={(event) => {
+            if (event.altKey && breakpoint === 'desktop') {
+                event.preventDefault();
+                void openNote(note.id, { pane: 'secondary' });
+                return;
+            }
             if (event.metaKey || event.ctrlKey) {
                 toggleSelected(note.id, true);
                 return;
@@ -354,10 +366,12 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, now, onRangeSe
         }} onContextMenu={(event) => {
             setMenuOpen(false);
             menu.onContextMenu(event);
-        }} className={cn('group relative cursor-default rounded-[var(--r-md)] border border-transparent px-2.5 pr-11 transition-[background-color,border-color,box-shadow] duration-[var(--dur-fast)] md:pr-2.5', density === 'compact' ? 'py-[7px]' : 'py-2.5', selectionHighlighted
+        }} className={cn('group relative cursor-default rounded-[var(--r-md)] border border-transparent px-2.5 pr-11 transition-[background-color,border-color,box-shadow] duration-[var(--dur-fast)] md:pr-10', density === 'compact' ? 'py-[7px]' : 'py-2.5', selectionHighlighted
             ? 'bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]/40'
             : active
                 ? 'border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[var(--shadow-sm)]'
+                : openInSecondary
+                    ? 'border-[var(--accent)]/35 bg-[var(--accent-soft)]/45'
                 : 'hover:bg-[var(--bg-hover)]')}>
         <div className="flex items-start gap-1.5">
           <div className="min-w-0 flex-1">
@@ -394,6 +408,14 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, now, onRangeSe
             </div>
           </div>
         </div>
+        {breakpoint === 'desktop' && (<Tooltip label={t("notes.open_to_side")} side="left">
+            <IconButton label={t("notes.open_to_side")} size="sm" active={openInSecondary} onClick={(event) => {
+                  event.stopPropagation();
+                  void openNote(note.id, { pane: 'secondary' });
+              }} className="absolute top-1.5 right-1.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" >
+              <Columns2 size={14}/>
+            </IconButton>
+          </Tooltip>)}
         {breakpoint === 'mobile' && (<Tooltip label={t("common.more_actions")} side="left">
             <IconButton ref={menuButtonRef} label={t("common.more_actions")} size="sm" onClick={(event) => {
                   event.stopPropagation();

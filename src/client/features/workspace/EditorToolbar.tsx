@@ -6,8 +6,9 @@ import { Menu, Tooltip, type MenuItem } from '../../components/overlay';
 import { cn } from '../../lib/cn';
 import { insertAdvancedCodeBlock, insertBlockId, insertCallout, insertCodeBlock, insertDefinitionList, insertDetails, insertFootnote, insertFrontMatter, insertHorizontalRule, insertImage, insertLink, insertMermaid, insertPandocAttributes, insertTable, insertTabs, insertTag, insertText, setHeading, toggleBlockReference, toggleBold, toggleBulletList, toggleHighlight, toggleInlineCode, toggleInlineMath, toggleInserted, toggleItalic, toggleNoteEmbed, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleSubscript, toggleSuperscript, toggleTaskList, toggleWikiLink, } from '../../editor/commands';
 import { t } from "../../lib/i18n";
-export function EditorToolbar({ runCommand, onPickImage, mobile = false, }: {
-    runCommand: (command: (target: EditorView) => boolean) => void;
+export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, }: {
+    runCommand?: (command: (target: EditorView) => boolean) => void;
+    view?: EditorView | null;
     onPickImage: () => void;
     mobile?: boolean;
 }) {
@@ -20,7 +21,14 @@ export function EditorToolbar({ runCommand, onPickImage, mobile = false, }: {
         setOpenMenu((current) => current === menu ? null : menu);
     };
     const run = (command: (target: EditorView) => boolean) => () => {
-        runCommand(command);
+        if (runCommand) {
+            runCommand(command);
+            return;
+        }
+        if (!view)
+            return;
+        command(view);
+        view.focus();
     };
     const headingItems: MenuItem[] = [1, 2, 3, 4, 5, 6].map((level) => ({
         id: `h${level}`,

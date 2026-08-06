@@ -321,6 +321,7 @@ export const EN_US_MESSAGES = {
     "notes.offline_modifications_have_been_restored_as_a_new_note": "Offline modifications have been restored as a new note.",
     "notes.open_a_copy": "Open a copy",
     "notes.open_navigation": "Open navigation",
+    "notes.open_to_side": "Open to side",
     "notes.other": "Other",
     "notes.permanent_deletion_failed": "Permanent deletion failed",
     "notes.permanent_deletion_was_canceled_because_the_note_body_is_not_safely_sync": "Permanent deletion was canceled because the note body is not safely synced",
@@ -805,6 +806,7 @@ export const EN_US_MESSAGES = {
     "shell.quick_open": "Quick open",
     "shell.resize_navigation_panel": "Resize navigation panel",
     "shell.resize_note_list": "Resize note list",
+    "shell.resize_note_panes": "Resize note panes",
     "shell.save_now": "Save now",
     "shell.saving": "Saving…",
     "shell.search_all_notes": "Search all notes",
@@ -864,6 +866,7 @@ export const EN_US_MESSAGES = {
     "workspace.block_reference": "Block reference",
     "workspace.callout": "Callout",
     "workspace.characters": " characters",
+    "workspace.close_right_note": "Close right note",
     "workspace.choose_a_note_or_write_a_new_one": "Choose a note, or write a new one",
     "workspace.code_block": "Code block",
     "workspace.definition_list": "Definition list",
@@ -886,6 +889,7 @@ export const EN_US_MESSAGES = {
     "workspace.large_content_using_a_faster_comparison": "Large content · using a faster comparison",
     "workspace.latest": "Latest",
     "workspace.layout": "Layout",
+    "workspace.left_note_pane": "Left note pane",
     "workspace.link": "Link",
     "workspace.loading_note_content": "Loading note content",
     "workspace.note_title": "Note title",
@@ -905,6 +909,7 @@ export const EN_US_MESSAGES = {
     "workspace.preview_only": "Preview only",
     "workspace.remote_image": "Remote image",
     "workspace.resize_editor_and_preview_panes": "Resize editor and preview panes",
+    "workspace.right_note_pane": "Right note pane",
     "workspace.restore_this_version": "Restore this version?",
     "workspace.restore_this_version_da5169": "Restore this version",
     "workspace.restored_to_selected_version": "Restored to selected version",
@@ -947,6 +952,7 @@ Use the left side to organize notes, the center to edit plain Markdown, and the 
 - [ ] Add a \`#tag\`, or click [[My first note]] to create a linked note
 - [ ] Click the title above this note and give it a name different from the body
 - [ ] Create a subfolder, then drag it into another folder or sibling position
+- [ ] Alt-click another note, or choose **Open to side**, to work with two notes at once
 - [ ] Install Inkstone as an offline-capable PWA under **Settings → About**
 - [ ] Open **Settings → MCP** to review private AI connections and permissions
 - [ ] Add a backup target under **Settings → Backup**
@@ -980,10 +986,10 @@ Use the left side to organize notes, the center to edit plain Markdown, and the 
 Independent titles, source editing, live preview, synchronized scrolling, focus and typewriter modes, an outline, and version history.
 
 @tab Organization
-Twelve levels of drag-sortable folders, inline \`#tags\`, \`[[wiki links]]\`, backlinks, a graph, and full-text search. Deleting a folder promotes its children and moves direct notes to the parent.
+Twelve levels of drag-sortable folders, inline \`#tags\`, \`[[wiki links]]\`, backlinks, a graph, and full-text search. On desktop, open a second note to the side and choose edit, split, or preview independently in each active group. Deleting a folder promotes its children and moves direct notes to the parent.
 
 @tab Search & AI
-Command-palette navigation, keyword search, and optional Workers AI semantic/hybrid search. Every account has a separate index, with automatic keyword fallback when AI is unavailable.
+Keyboard command-palette navigation, keyword search, and optional Workers AI semantic/hybrid search. Every account has a separate index, with automatic keyword fallback when AI is unavailable.
 
 @tab Safety & backup
 Self-hosting, an installable PWA, offline editing, multi-device sync, and conflict copies. Back up to several WebDAV or S3 targets and export readable Markdown, attachments, and complete structured data.

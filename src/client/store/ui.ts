@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AccentName, SortKey, SortOrder, ThemePref, UiDensity, ViewKind } from '@shared/types'
+import type { AccentName, EditorLayout, SortKey, SortOrder, ThemePref, UiDensity, ViewKind } from '@shared/types'
 import { ACCENTS, LIMITS, VIEW_KINDS } from '@shared/constants'
 import { truncateText } from '@shared/text-utils'
 import { UI_STORAGE_KEY } from '../lib/runtime'
@@ -16,6 +16,8 @@ export type PanelName =
   | 'versions'
   | 'share'
   | 'info'
+
+export type WorkspacePane = 'primary' | 'secondary'
 
 export interface ToastItem {
   id: string
@@ -35,6 +37,11 @@ interface UiState {
 
   navDrawerOpen: boolean
   splitRatio: number | null
+  workspaceSplitRatio: number | null
+  workspacePrimaryNoteId: string | null
+  workspaceSecondaryNoteId: string | null
+  activeWorkspacePane: WorkspacePane
+  workspacePaneLayouts: Record<WorkspacePane, EditorLayout>
   mobilePane: 'nav' | 'list' | 'editor' | 'preview'
 
 
@@ -64,7 +71,12 @@ interface UiState {
   fontScale: number
 
 
-  setLayout: (patch: Partial<Pick<UiState, 'navWidth' | 'listWidth' | 'splitRatio'>>) => void
+  setLayout: (patch: Partial<Pick<UiState, 'navWidth' | 'listWidth' | 'splitRatio' | 'workspaceSplitRatio'>>) => void
+  setWorkspacePaneLayout: (pane: WorkspacePane, layout: EditorLayout) => void
+  setWorkspaceNote: (pane: WorkspacePane, id: string | null, activate?: boolean) => void
+  activateWorkspacePane: (pane: WorkspacePane) => void
+  closeSecondaryNote: () => void
+  removeWorkspaceNote: (id: string) => void
   toggleNav: () => void
   toggleNavDrawer: (open?: boolean) => void
   toggleList: () => void
@@ -111,6 +123,11 @@ const DEFAULTS = {
   density: 'comfortable' as UiDensity,
   expandedFolders: [] as string[],
   activeNoteId: null,
+  workspaceSplitRatio: null as number | null,
+  workspacePrimaryNoteId: null as string | null,
+  workspaceSecondaryNoteId: null as string | null,
+  activeWorkspacePane: 'primary' as WorkspacePane,
+  workspacePaneLayouts: { primary: 'edit', secondary: 'edit' } as Record<WorkspacePane, EditorLayout>,
   recentNoteIds: [] as string[],
   theme: 'system' as ThemePref,
   accent: 'indigo' as AccentName,
@@ -123,6 +140,11 @@ const PERSISTED_KEYS = [
   'navCollapsed',
   'listCollapsed',
   'splitRatio',
+  'workspaceSplitRatio',
+  'workspacePrimaryNoteId',
+  'workspaceSecondaryNoteId',
+  'activeWorkspacePane',
+  'workspacePaneLayouts',
   'view',
   'folderId',
   'tag',
@@ -155,6 +177,9 @@ function loadPersisted(): Partial<UiState> {
     if (typeof value.navCollapsed === 'boolean') out.navCollapsed = value.navCollapsed
     if (typeof value.listCollapsed === 'boolean') out.listCollapsed = value.listCollapsed
     if (isFiniteNumber(value.splitRatio)) out.splitRatio = clamp(value.splitRatio, 0.2, 0.8)
+    if (isFiniteNumber(value.workspaceSplitRatio)) {
+      out.workspaceSplitRatio = clamp(value.workspaceSplitRatio, 0.2, 0.8)
+    }
     if (isChoice(value.view, VIEW_KINDS)) out.view = value.view as ViewKind
     if (value.folderId === null || typeof value.folderId === 'string') {
       out.folderId = value.folderId?.slice(0, 128) ?? null
@@ -171,6 +196,22 @@ function loadPersisted(): Partial<UiState> {
     if (value.activeNoteId === null || typeof value.activeNoteId === 'string') {
       out.activeNoteId = value.activeNoteId?.slice(0, 128) ?? null
     }
+    if (value.workspacePrimaryNoteId === null || typeof value.workspacePrimaryNoteId === 'string') {
+      out.workspacePrimaryNoteId = value.workspacePrimaryNoteId?.slice(0, 128) ?? null
+    }
+    if (value.workspaceSecondaryNoteId === null || typeof value.workspaceSecondaryNoteId === 'string') {
+      out.workspaceSecondaryNoteId = value.workspaceSecondaryNoteId?.slice(0, 128) ?? null
+    }
+    if (isChoice(value.activeWorkspacePane, ['primary', 'secondary'])) {
+      out.activeWorkspacePane = value.activeWorkspacePane as WorkspacePane
+    }
+    if (value.workspacePaneLayouts && typeof value.workspacePaneLayouts === 'object' && !Array.isArray(value.workspacePaneLayouts)) {
+      const layouts = value.workspacePaneLayouts as Record<string, unknown>
+      out.workspacePaneLayouts = {
+        primary: isChoice(layouts.primary, ['edit', 'split', 'preview']) ? layouts.primary as EditorLayout : 'edit',
+        secondary: isChoice(layouts.secondary, ['edit', 'split', 'preview']) ? layouts.secondary as EditorLayout : 'edit',
+      }
+    }
     if (Array.isArray(value.recentNoteIds)) {
       out.recentNoteIds = uniqueStrings(value.recentNoteIds, 24)
     }
@@ -179,6 +220,17 @@ function loadPersisted(): Partial<UiState> {
       out.accent = value.accent as AccentName
     }
     if (isFiniteNumber(value.fontScale)) out.fontScale = clamp(Math.round(value.fontScale), 13, 22)
+    if (!out.workspaceSecondaryNoteId) {
+      out.workspacePrimaryNoteId = null
+      out.activeWorkspacePane = 'primary'
+    } else if (!out.workspacePrimaryNoteId) {
+      out.workspacePrimaryNoteId = out.activeNoteId ?? null
+    }
+    if (out.workspaceSecondaryNoteId && out.workspacePrimaryNoteId) {
+      out.activeNoteId = out.activeWorkspacePane === 'secondary'
+        ? out.workspaceSecondaryNoteId
+        : out.workspacePrimaryNoteId
+    }
     return out
   } catch {
     return {}
@@ -201,6 +253,18 @@ function uniqueStrings(value: unknown[], limit: number): string[] {
   return [...new Set(value.filter((item): item is string => typeof item === 'string'))]
     .slice(0, limit)
     .map((item) => item.slice(0, 128))
+}
+
+function activatedNoteFields(state: UiState, id: string | null, pane: WorkspacePane): Partial<UiState> {
+  return {
+    activeNoteId: id,
+    activeWorkspacePane: pane,
+    selectedIds: id ? [id] : [],
+    recentNoteIds: id
+      ? [id, ...state.recentNoteIds.filter((recentId) => recentId !== id)].slice(0, 24)
+      : state.recentNoteIds,
+    mobilePane: id ? 'preview' : state.mobilePane,
+  }
 }
 
 let persistTimer: number | undefined
@@ -241,6 +305,98 @@ export const useUi = create<UiState>((set, get) => ({
   ...loadPersisted(),
 
   setLayout: (patch) => set(patch),
+  setWorkspacePaneLayout: (pane, layout) => set((state) => ({
+    workspacePaneLayouts: { ...state.workspacePaneLayouts, [pane]: layout },
+  })),
+  setWorkspaceNote: (pane, id, activate = true) => set((state) => {
+    if (pane === 'secondary') {
+      if (!id) {
+        const primaryId = state.workspacePrimaryNoteId ??
+          (state.activeWorkspacePane === 'primary' ? state.activeNoteId : null)
+        return {
+          workspacePrimaryNoteId: null,
+          workspaceSecondaryNoteId: null,
+          ...activatedNoteFields(state, primaryId, 'primary'),
+        }
+      }
+      const primaryId = state.workspaceSecondaryNoteId
+        ? state.workspacePrimaryNoteId
+        : state.activeNoteId
+      return {
+        workspacePrimaryNoteId: primaryId,
+        workspaceSecondaryNoteId: id,
+        outlineOpen: false,
+        ...(activate ? activatedNoteFields(state, id, 'secondary') : {}),
+      }
+    }
+
+    if (!id && state.workspaceSecondaryNoteId) {
+      return {
+        workspacePrimaryNoteId: null,
+        workspaceSecondaryNoteId: null,
+        ...activatedNoteFields(state, state.workspaceSecondaryNoteId, 'primary'),
+      }
+    }
+    if (state.workspaceSecondaryNoteId) {
+      return {
+        workspacePrimaryNoteId: id,
+        ...(activate ? activatedNoteFields(state, id, 'primary') : {}),
+      }
+    }
+    return activatedNoteFields(state, id, 'primary')
+  }),
+  activateWorkspacePane: (pane) => set((state) => {
+    const targetId = pane === 'secondary'
+      ? state.workspaceSecondaryNoteId
+      : state.workspaceSecondaryNoteId
+        ? state.workspacePrimaryNoteId
+        : state.activeNoteId
+    if (!targetId) return state
+    return {
+      ...activatedNoteFields(state, targetId, pane),
+      outlineOpen: false,
+    }
+  }),
+  closeSecondaryNote: () => set((state) => {
+    if (!state.workspaceSecondaryNoteId) return state
+    const primaryId = state.workspacePrimaryNoteId ??
+      (state.activeWorkspacePane === 'primary' ? state.activeNoteId : null)
+    return {
+      workspacePrimaryNoteId: null,
+      workspaceSecondaryNoteId: null,
+      ...activatedNoteFields(state, primaryId, 'primary'),
+    }
+  }),
+  removeWorkspaceNote: (id) => set((state) => {
+    const primaryId = state.workspacePrimaryNoteId
+    const secondaryId = state.workspaceSecondaryNoteId
+    if (primaryId === id && secondaryId === id) {
+      return {
+        workspacePrimaryNoteId: null,
+        workspaceSecondaryNoteId: null,
+        ...activatedNoteFields(state, null, 'primary'),
+      }
+    }
+    if (primaryId === id && secondaryId) {
+      return {
+        workspacePrimaryNoteId: null,
+        workspaceSecondaryNoteId: null,
+        ...activatedNoteFields(state, secondaryId, 'primary'),
+      }
+    }
+    if (secondaryId === id) {
+      const remainingId = primaryId ?? (state.activeWorkspacePane === 'primary' ? state.activeNoteId : null)
+      return {
+        workspacePrimaryNoteId: null,
+        workspaceSecondaryNoteId: null,
+        ...activatedNoteFields(state, remainingId, 'primary'),
+      }
+    }
+    if (!secondaryId && state.activeNoteId === id) {
+      return activatedNoteFields(state, null, 'primary')
+    }
+    return state
+  }),
   toggleNav: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
   toggleNavDrawer: (open) => set((s) => ({ navDrawerOpen: open ?? !s.navDrawerOpen })),
   toggleList: () => set((s) => ({ listCollapsed: !s.listCollapsed })),
@@ -272,13 +428,11 @@ export const useUi = create<UiState>((set, get) => ({
       s.expandedFolders.includes(id) ? s : { expandedFolders: [...s.expandedFolders, id] },
     ),
 
-  setActiveNote: (id) =>
-    set((s) => ({
-      activeNoteId: id,
-      selectedIds: id ? [id] : [],
-      recentNoteIds: id ? [id, ...s.recentNoteIds.filter((r) => r !== id)].slice(0, 24) : s.recentNoteIds,
-      mobilePane: id ? 'preview' : s.mobilePane,
-    })),
+  setActiveNote: (id) => {
+    const state = get()
+    const pane = state.workspaceSecondaryNoteId ? state.activeWorkspacePane : 'primary'
+    state.setWorkspaceNote(pane, id)
+  },
 
   setSelected: (ids) => set({ selectedIds: ids }),
 

@@ -8,7 +8,7 @@ import type { Folder, Note, NoteSummary, SortKey, SortOrder, SyncResponse, Tag, 
 import { api, ApiError, CLIENT_ID } from '../lib/api';
 import { localDb, publishBroadcast, type BroadcastPayload, type OutboxItem } from '../lib/db';
 import { useSession } from './session';
-import { useUi } from './ui';
+import { useUi, type WorkspacePane } from './ui';
 import { t } from "../lib/i18n";
 export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'synced' | 'offline';
 interface NotesState {
@@ -27,7 +27,10 @@ interface NotesState {
     pull: (options?: {
         force?: boolean;
     }) => Promise<void>;
-    openNote: (id: string) => Promise<void>;
+    openNote: (id: string, options?: {
+        pane?: WorkspacePane;
+        activate?: boolean;
+    }) => Promise<void>;
     editTitle: (id: string, title: string) => void;
     editContent: (id: string, content: string) => void;
     flush: (options?: {
@@ -86,8 +89,8 @@ let folderStateGeneration = 0;
 let tagStateGeneration = 0;
 let folderRefreshSequence = 0;
 let tagRefreshSequence = 0;
-let openSequence = 0;
-let latestRequestedNoteId: string | null = null;
+const openSequences: Record<WorkspacePane, number> = { primary: 0, secondary: 0 };
+const latestRequestedNoteIds: Record<WorkspacePane, string | null> = { primary: null, secondary: null };
 
 const noteWriteTails = new Map<string, Promise<void>>();
 type OptimisticNotePatch = Partial<Pick<NoteSummary, 'folderId' | 'isPinned' | 'isStarred' | 'isArchived' | 'deletedAt' | 'updatedAt'>>;
@@ -190,14 +193,24 @@ export const useNotes = create<NotesState>((set, get) => ({
 
                 const state = get();
                 const notes = state.notes;
-                const activeId = useUi.getState().activeNoteId;
+                let workspace = useUi.getState();
+                for (const openId of [workspace.workspacePrimaryNoteId, workspace.workspaceSecondaryNoteId]) {
+                    if (openId && !notes[openId])
+                        workspace.removeWorkspaceNote(openId);
+                }
+                workspace = useUi.getState();
+                const activePane = workspace.workspaceSecondaryNoteId
+                    ? workspace.activeWorkspacePane
+                    : 'primary';
+                const activeId = workspace.activeNoteId;
+                const latestRequestedNoteId = latestRequestedNoteIds[activePane];
                 const targetId = (latestRequestedNoteId && notes[latestRequestedNoteId]
                     ? latestRequestedNoteId
                     : null) ??
                     (activeId && notes[activeId] ? activeId : pickInitialNoteId(notes));
                 if (targetId) {
                     if (activeId !== targetId || !hasOwnContent(state.contents, targetId)) {
-                        await get().openNote(targetId);
+                        await get().openNote(targetId, { pane: activePane });
                     }
                     else {
                         revalidateNote(targetId, notes[targetId]!.rev, set, get);
@@ -205,6 +218,18 @@ export const useNotes = create<NotesState>((set, get) => ({
                 }
                 else if (activeId) {
                     useUi.getState().setActiveNote(null);
+                }
+                workspace = useUi.getState();
+                if (workspace.workspaceSecondaryNoteId) {
+                    const backgroundPane: WorkspacePane = workspace.activeWorkspacePane === 'primary'
+                        ? 'secondary'
+                        : 'primary';
+                    const backgroundId = backgroundPane === 'primary'
+                        ? workspace.workspacePrimaryNoteId
+                        : workspace.workspaceSecondaryNoteId;
+                    if (backgroundId && notes[backgroundId] && !hasOwnContent(get().contents, backgroundId)) {
+                        await get().openNote(backgroundId, { pane: backgroundPane, activate: false });
+                    }
                 }
             }
             finally {
@@ -342,25 +367,31 @@ export const useNotes = create<NotesState>((set, get) => ({
             if (get().notes[id])
                 continue;
             discardNoteRuntimeState(id);
+            useUi.getState().removeWorkspaceNote(id);
             void localDb.dropContent(id);
         }
     },
-    async openNote(id) {
-        latestRequestedNoteId = id;
-        const requestSequence = ++openSequence;
+    async openNote(id, options) {
+        const uiAtRequest = useUi.getState();
+        const targetPane = options?.pane ?? (uiAtRequest.workspaceSecondaryNoteId
+            ? uiAtRequest.activeWorkspacePane
+            : 'primary');
+        const activate = options?.activate !== false;
+        latestRequestedNoteIds[targetPane] = id;
+        const requestSequence = ++openSequences[targetPane];
         const requestEpoch = noteRequestEpochs.get(id) ?? 0;
         const state = get();
         const summary = state.notes[id];
         if (!summary)
             return;
         if (hasOwnContent(state.contents, id)) {
-            useUi.getState().setActiveNote(id);
+            useUi.getState().setWorkspaceNote(targetPane, id, activate);
             revalidateNote(id, summary.rev, set, get);
             return;
         }
         const cached = await localDb.getContent(id);
         let currentSummary = get().notes[id];
-        if (requestSequence !== openSequence ||
+        if (requestSequence !== openSequences[targetPane] ||
             (noteRequestEpochs.get(id) ?? 0) !== requestEpoch ||
             !currentSummary)
             return;
@@ -372,7 +403,7 @@ export const useNotes = create<NotesState>((set, get) => ({
             if (cached.writeId) {
                 const outbox = await localDb.getOutbox();
                 currentSummary = get().notes[id];
-                if (requestSequence !== openSequence ||
+                if (requestSequence !== openSequences[targetPane] ||
                     (noteRequestEpochs.get(id) ?? 0) !== requestEpoch ||
                     !currentSummary)
                     return;
@@ -476,7 +507,7 @@ export const useNotes = create<NotesState>((set, get) => ({
             }));
             if (visibleTitle !== undefined)
                 scheduleShellSave(get);
-            useUi.getState().setActiveNote(id);
+            useUi.getState().setWorkspaceNote(targetPane, id, activate);
             if (restoredPending) {
                 if (foreignPending && get().online)
                     void replayOutbox(get, set);
@@ -492,8 +523,8 @@ export const useNotes = create<NotesState>((set, get) => ({
             const note = await requestNote(id);
             adoptNote(note, set, get);
             validatedRevisions.set(id, note.rev);
-            if (requestSequence === openSequence && get().notes[id]) {
-                useUi.getState().setActiveNote(id);
+            if (requestSequence === openSequences[targetPane] && get().notes[id]) {
+                useUi.getState().setWorkspaceNote(targetPane, id, activate);
             }
         }
         catch (err) {
@@ -505,10 +536,9 @@ export const useNotes = create<NotesState>((set, get) => ({
             }
             if (err instanceof ApiError && err.status === 404) {
                 useUi.getState().toast({ title: t("notes.this_note_no_longer_exists"), tone: 'danger' });
-                if (latestRequestedNoteId === id)
-                    latestRequestedNoteId = null;
-                if (useUi.getState().activeNoteId === id)
-                    useUi.getState().setActiveNote(null);
+                if (latestRequestedNoteIds[targetPane] === id)
+                    latestRequestedNoteIds[targetPane] = null;
+                useUi.getState().removeWorkspaceNote(id);
                 set((s) => {
                     const notes = { ...s.notes };
                     delete notes[id];
@@ -595,7 +625,7 @@ export const useNotes = create<NotesState>((set, get) => ({
             updatedAt: now,
             deletedAt: null,
         };
-        const previousActiveId = useUi.getState().activeNoteId;
+        const previousWorkspace = captureWorkspaceState();
         adoptNote(optimistic, set, get);
         if (input?.open !== false)
             useUi.getState().setActiveNote(id);
@@ -616,8 +646,8 @@ export const useNotes = create<NotesState>((set, get) => ({
                     return { notes, contents };
                 });
                 void localDb.dropContent(id);
-                if (useUi.getState().activeNoteId === id)
-                    useUi.getState().setActiveNote(previousActiveId && get().notes[previousActiveId] ? previousActiveId : null);
+                if (workspaceContainsNote(id))
+                    restoreWorkspaceState(previousWorkspace);
                 scheduleShellSave(get);
             }
             toastError(err, t("notes.could_not_create_note"));
@@ -669,19 +699,20 @@ export const useNotes = create<NotesState>((set, get) => ({
         const before = get().notes[id];
         if (!before)
             return;
-        const wasActive = useUi.getState().activeNoteId === id;
+        const workspaceBefore = captureWorkspaceState();
+        const wasOpen = workspaceContainsNote(id);
         const deletedAt = Date.now();
         const mutation = beginNoteMutation(id, { deletedAt, updatedAt: deletedAt }, set, get);
         if (!mutation)
             return;
-        if (wasActive)
-            useUi.getState().setActiveNote(null);
+        if (wasOpen)
+            useUi.getState().removeWorkspaceNote(id);
         await enqueueNoteWrite(id, async () => {
             if (!(await saveDirtyBeforeDestructiveMutation(id, set, get))) {
                 finishNoteMutation(id, mutation);
                 rollbackNoteMutation(id, mutation, set, get);
-                if (wasActive && get().notes[id])
-                    useUi.getState().setActiveNote(id);
+                if (wasOpen && get().notes[id])
+                    restoreWorkspaceState(workspaceBefore);
                 useUi.getState().toast({
                     title: t("notes.deletion_was_canceled_because_the_note_body_is_not_safely_synced"),
                     tone: 'warning',
@@ -702,8 +733,8 @@ export const useNotes = create<NotesState>((set, get) => ({
             }
             catch (err) {
                 await recoverNoteMutation(id, mutation, err, set, get);
-                if (wasActive && get().notes[id]?.deletedAt === null)
-                    useUi.getState().setActiveNote(id);
+                if (wasOpen && get().notes[id]?.deletedAt === null)
+                    restoreWorkspaceState(workspaceBefore);
                 toastError(err, t("common.delete_failed"));
             }
         });
@@ -772,13 +803,14 @@ export const useNotes = create<NotesState>((set, get) => ({
             return;
         const hadContent = hasOwnContent(get().contents, id);
         const beforeContent = get().contents[id];
-        const wasActive = useUi.getState().activeNoteId === id;
+        const workspaceBefore = captureWorkspaceState();
+        const wasOpen = workspaceContainsNote(id);
         markNotesOptimisticallyPurged([id], set, get);
         await enqueueNoteWrite(id, async () => {
             if (!(await saveDirtyBeforeDestructiveMutation(id, set, get))) {
                 restoreOptimisticallyPurgedNotes([{ note: before, content: beforeContent, hadContent }], set, get);
-                if (wasActive)
-                    useUi.getState().setActiveNote(id);
+                if (wasOpen)
+                    restoreWorkspaceState(workspaceBefore);
                 useUi.getState().toast({
                     title: t("notes.permanent_deletion_was_canceled_because_the_note_body_is_not_safely_sync"),
                     tone: 'warning',
@@ -800,8 +832,8 @@ export const useNotes = create<NotesState>((set, get) => ({
             }
             catch (err) {
                 restoreOptimisticallyPurgedNotes([{ note: before, content: beforeContent, hadContent }], set, get);
-                if (wasActive)
-                    useUi.getState().setActiveNote(id);
+                if (wasOpen)
+                    restoreWorkspaceState(workspaceBefore);
                 toastError(err, t("notes.permanent_deletion_failed"));
             }
         });
@@ -816,11 +848,13 @@ export const useNotes = create<NotesState>((set, get) => ({
         }));
         if (!snapshots.length)
             return 0;
+        const workspaceBefore = captureWorkspaceState();
         const ids = snapshots.map((snapshot) => snapshot.note.id);
         markNotesOptimisticallyPurged(ids, set, get);
         for (const id of ids) {
             if (!(await saveDirtyBeforeDestructiveMutation(id, set, get))) {
                 restoreOptimisticallyPurgedNotes(snapshots, set, get);
+                restoreWorkspaceState(workspaceBefore);
                 useUi.getState().toast({
                     title: t("notes.permanent_deletion_was_canceled_because_the_note_body_is_not_safely_sync"),
                     tone: 'warning',
@@ -839,6 +873,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         }
         catch (err) {
             restoreOptimisticallyPurgedNotes(snapshots, set, get);
+            restoreWorkspaceState(workspaceBefore);
             toastError(err, t("notes.clearing_failed"));
             return null;
         }
@@ -1597,8 +1632,8 @@ function markNotesOptimisticallyPurged(ids: string[], set: SetNotesState, get: (
         }
         return { notes, contents };
     });
-    if (idSet.has(useUi.getState().activeNoteId ?? ''))
-        useUi.getState().setActiveNote(null);
+    for (const id of idSet)
+        useUi.getState().removeWorkspaceNote(id);
     scheduleShellSave(get);
 }
 function restoreOptimisticallyPurgedNotes(snapshots: Array<{
@@ -1655,8 +1690,10 @@ function discardNoteRuntimeState(id: string, tombstoneCursor?: number | null): v
     if (pendingDerivation)
         window.clearTimeout(pendingDerivation.timer);
     pendingSummaryDerivations.delete(id);
-    if (latestRequestedNoteId === id)
-        latestRequestedNoteId = null;
+    for (const pane of ['primary', 'secondary'] as const) {
+        if (latestRequestedNoteIds[pane] === id)
+            latestRequestedNoteIds[pane] = null;
+    }
 }
 function adoptNote(note: Note | NoteSummary, set: SetNotesState, get: () => NotesState): void {
     if (purgedNoteIds.has(note.id))
@@ -2160,6 +2197,7 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                         publishOutboxResult(item, recoveryResult);
                     if (item.clientId === CLIENT_ID) {
                         if (recoveredLatest) {
+                            const openPane = workspacePaneForNote(item.noteId);
                             const wasActive = useUi.getState().activeNoteId === item.noteId;
                             const deletionCursor = deletionCursorFrom(err);
                             discardNoteRuntimeState(item.noteId, deletionCursor);
@@ -2172,8 +2210,8 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                             });
                             scheduleShellSave(get);
                             void localDb.dropContent(item.noteId);
-                            if (wasActive)
-                                useUi.getState().setActiveNote(copyId);
+                            if (openPane)
+                                useUi.getState().setWorkspaceNote(openPane, copyId, wasActive);
                             if (deletionCursor === null)
                                 void get().pull({ force: true }).catch(() => { });
                         }
@@ -2289,6 +2327,7 @@ export function acknowledgeOutboxResult(result: OutboxResult): void {
         return;
     dirty.delete(result.noteId);
     validatedRevisions.delete(result.noteId);
+    const openPane = workspacePaneForNote(result.noteId);
     const wasActive = useUi.getState().activeNoteId === result.noteId;
     useNotes.setState((current) => {
         const contents = { ...current.contents };
@@ -2301,8 +2340,8 @@ export function acknowledgeOutboxResult(result: OutboxResult): void {
     void localDb.dropContent(result.noteId);
     refreshPendingCount();
     void useNotes.getState().pull().then(() => {
-        if (wasActive && useNotes.getState().notes[result.noteId])
-            return useNotes.getState().openNote(result.noteId);
+        if (openPane && useNotes.getState().notes[result.noteId])
+            return useNotes.getState().openNote(result.noteId, { pane: openPane, activate: wasActive });
     });
     if (result.copyId)
         showOfflineRecoveryToast(result.copyId, result.recoveryReason !== 'deleted');
@@ -2654,12 +2693,18 @@ export function buildFolderTree(folders: Folder[], direct: ReadonlyMap<string, n
     }
     return roots.sort(compare);
 }
-export function useActiveNote(): {
+export function useActiveNote(pane: WorkspacePane | 'active' = 'active'): {
     note: NoteSummary | null;
     content: string;
     loaded: boolean;
 } {
-    const activeId = useUi((s) => s.activeNoteId);
+    const activeId = useUi((state) => {
+        if (pane === 'active')
+            return state.activeNoteId;
+        if (!state.workspaceSecondaryNoteId)
+            return pane === 'primary' ? state.activeNoteId : null;
+        return pane === 'primary' ? state.workspacePrimaryNoteId : state.workspaceSecondaryNoteId;
+    });
     const note = useNotes((s) => (activeId ? (s.notes[activeId] ?? null) : null));
     const storedContent = useNotes((s) => (activeId ? s.contents[activeId] : undefined));
     return {
@@ -2670,6 +2715,43 @@ export function useActiveNote(): {
 }
 export function noteById(id: string): NoteSummary | undefined {
     return useNotes.getState().notes[id];
+}
+
+function captureWorkspaceState() {
+    const ui = useUi.getState();
+    return {
+        activeNoteId: ui.activeNoteId,
+        workspacePrimaryNoteId: ui.workspacePrimaryNoteId,
+        workspaceSecondaryNoteId: ui.workspaceSecondaryNoteId,
+        activeWorkspacePane: ui.activeWorkspacePane,
+        selectedIds: ui.selectedIds,
+        recentNoteIds: ui.recentNoteIds,
+        mobilePane: ui.mobilePane,
+    };
+}
+
+function workspaceContainsNote(id: string): boolean {
+    const ui = useUi.getState();
+    return ui.activeNoteId === id ||
+        ui.workspacePrimaryNoteId === id ||
+        ui.workspaceSecondaryNoteId === id;
+}
+
+function workspacePaneForNote(id: string): WorkspacePane | null {
+    const ui = useUi.getState();
+    if (ui.workspaceSecondaryNoteId) {
+        if (ui.workspacePrimaryNoteId === id && ui.workspaceSecondaryNoteId === id)
+            return ui.activeWorkspacePane;
+        if (ui.workspacePrimaryNoteId === id)
+            return 'primary';
+        if (ui.workspaceSecondaryNoteId === id)
+            return 'secondary';
+    }
+    return ui.activeNoteId === id ? 'primary' : null;
+}
+
+function restoreWorkspaceState(snapshot: ReturnType<typeof captureWorkspaceState>): void {
+    useUi.setState(snapshot);
 }
 export function findNoteByTitle(title: string): NoteSummary | undefined {
     const key = normalizeLinkKey(title);

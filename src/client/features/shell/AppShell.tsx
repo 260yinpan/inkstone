@@ -13,7 +13,7 @@ import { Sidebar } from '../sidebar/Sidebar';
 import { NoteList } from '../list/NoteList';
 import { Workspace } from '../workspace/Workspace';
 import { FloatingSearch } from './FloatingSearch';
-import { Resizer } from './Resizer';
+import { Resizer, SplitResizer } from './Resizer';
 import { t } from "../../lib/i18n";
 const CommandPalette = lazy(() => import('../command/CommandPalette').then((m) => ({ default: m.CommandPalette })));
 const SettingsPanel = lazy(() => import('../settings/SettingsPanel').then((m) => ({ default: m.SettingsPanel })));
@@ -48,22 +48,32 @@ export function AppShell() {
     }, [role, checkForUpdates]);
 
     useEffect(() => {
-        useUi.setState({ outlineOpen: useSession.getState().settings.preview.showToc });
+        const ui = useUi.getState();
+        useUi.setState({
+            outlineOpen: ui.workspaceSecondaryNoteId
+                ? false
+                : useSession.getState().settings.preview.showToc,
+        });
     }, []);
     const navWidth = useUi((s) => s.navWidth);
     const listWidth = useUi((s) => s.listWidth);
     const navCollapsed = useUi((s) => s.navCollapsed);
     const listCollapsed = useUi((s) => s.listCollapsed);
     const navDrawerOpen = useUi((s) => s.navDrawerOpen);
+    const workspaceSecondaryNoteId = useUi((s) => s.workspaceSecondaryNoteId);
+    const workspaceSplitRatio = useUi((s) => s.workspaceSplitRatio);
     const toggleNav = useUi((s) => s.toggleNav);
     const toggleNavDrawer = useUi((s) => s.toggleNavDrawer);
     const setLayout = useUi((s) => s.setLayout);
+    const workspaceGroupsRef = useRef<HTMLElement>(null);
     const isMobile = breakpoint === 'mobile';
     const isTablet = breakpoint === 'tablet';
 
     const showNav = !isMobile && !isTablet;
     const navAsDrawer = isTablet && navDrawerOpen;
     const showList = !listCollapsed && !isMobile;
+    const showWorkspaceSplit = breakpoint === 'desktop' && Boolean(workspaceSecondaryNoteId);
+    const effectiveWorkspaceSplitRatio = workspaceSplitRatio ?? 0.5;
     if (isMobile)
         return <MobileShell />;
     return (<div className="relative flex h-full min-h-0 overflow-hidden bg-[var(--bg-base)]">
@@ -82,8 +92,18 @@ export function AppShell() {
             <Resizer label={t("shell.resize_note_list")} value={listWidth} min={PANEL_WIDTHS.noteList.min} max={PANEL_WIDTHS.noteList.max} onChange={(listWidth) => setLayout({ listWidth })} onReset={() => setLayout({ listWidth: PANEL_WIDTHS.noteList.min })}/>
           </>)}
 
-        <main className="min-w-0 flex-1">
-          <Workspace />
+        <main ref={workspaceGroupsRef} className="flex min-w-0 flex-1">
+          {showWorkspaceSplit ? (<>
+              <div className="min-w-0" style={{ width: `${effectiveWorkspaceSplitRatio * 100}%` }}>
+                <Workspace pane="primary" grouped/>
+              </div>
+              <SplitResizer label={t("shell.resize_note_panes")} containerRef={workspaceGroupsRef} ratio={effectiveWorkspaceSplitRatio} onChange={(workspaceSplitRatio) => setLayout({ workspaceSplitRatio })} onReset={() => setLayout({ workspaceSplitRatio: null })}/>
+              <div className="min-w-0 flex-1">
+                <Workspace pane="secondary" grouped/>
+              </div>
+            </>) : (<div className="min-w-0 flex-1">
+                <Workspace />
+              </div>)}
         </main>
       </div>
 
@@ -223,8 +243,15 @@ function useGlobalHotkeys(): void {
                 group: () => t("common.interface"),
                 allowInInput: true,
                 handler: () => {
-                    const session = useSession.getState();
                     const order = ['edit', 'split', 'preview'] as const;
+                    const uiState = ui();
+                    if (uiState.workspaceSecondaryNoteId) {
+                        const pane = uiState.activeWorkspacePane;
+                        const current = order.indexOf(uiState.workspacePaneLayouts[pane]);
+                        uiState.setWorkspacePaneLayout(pane, order[(current + 1) % order.length]);
+                        return;
+                    }
+                    const session = useSession.getState();
                     const current = order.indexOf(session.settings.preview.layout);
                     void session.updateSettings({
                         preview: { layout: order[(current + 1) % order.length] },

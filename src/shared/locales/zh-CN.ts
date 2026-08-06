@@ -322,6 +322,7 @@ export const ZH_CN_MESSAGES = {
     "notes.offline_modifications_have_been_restored_as_a_new_note": "离线修改已恢复为一篇新笔记。",
     "notes.open_a_copy": "打开副本",
     "notes.open_navigation": "打开导航",
+    "notes.open_to_side": "在侧边打开",
     "notes.other": "其他",
     "notes.permanent_deletion_failed": "彻底删除失败",
     "notes.permanent_deletion_was_canceled_because_the_note_body_is_not_safely_sync": "正文尚未安全同步，已取消彻底删除",
@@ -806,6 +807,7 @@ export const ZH_CN_MESSAGES = {
     "shell.quick_open": "快速跳转笔记",
     "shell.resize_navigation_panel": "调整导航栏宽度",
     "shell.resize_note_list": "调整笔记列表宽度",
+    "shell.resize_note_panes": "调整两个笔记窗格的宽度",
     "shell.save_now": "立即保存",
     "shell.saving": "正在保存…",
     "shell.search_all_notes": "全文搜索",
@@ -865,6 +867,7 @@ export const ZH_CN_MESSAGES = {
     "workspace.block_reference": "块引用",
     "workspace.callout": "提示块",
     "workspace.characters": "字符",
+    "workspace.close_right_note": "关闭右侧笔记",
     "workspace.choose_a_note_or_write_a_new_one": "选一篇笔记，或者写一篇新的",
     "workspace.code_block": "代码块",
     "workspace.definition_list": "定义列表",
@@ -887,6 +890,7 @@ export const ZH_CN_MESSAGES = {
     "workspace.large_content_using_a_faster_comparison": "内容较大，已使用快速对比",
     "workspace.latest": "最近一次",
     "workspace.layout": "布局",
+    "workspace.left_note_pane": "左侧笔记窗格",
     "workspace.link": "链接",
     "workspace.loading_note_content": "正在载入笔记正文",
     "workspace.note_title": "笔记标题",
@@ -906,6 +910,7 @@ export const ZH_CN_MESSAGES = {
     "workspace.preview_only": "仅预览",
     "workspace.remote_image": "网络图片",
     "workspace.resize_editor_and_preview_panes": "调整编辑与预览宽度",
+    "workspace.right_note_pane": "右侧笔记窗格",
     "workspace.restore_this_version": "恢复到这个版本？",
     "workspace.restore_this_version_da5169": "恢复此版本",
     "workspace.restored_to_selected_version": "已恢复到所选版本",
@@ -948,6 +953,7 @@ aliases:
 - [ ] 写一个 \`#标签\`，或点击 [[我的第一篇笔记]] 创建双链笔记
 - [ ] 点击笔记顶部标题，把它改成与正文不同的名称
 - [ ] 新建一个子文件夹，再把它拖到其他文件夹或同级位置
+- [ ] 按住 Alt 点击另一篇笔记，或选择**在侧边打开**，同时处理两篇笔记
 - [ ] 在 **设置 → 关于** 把 Inkstone 安装成可离线启动的 PWA
 - [ ] 打开 **设置 → MCP** 查看私有 AI 接入方式和权限
 - [ ] 在 **设置 → 备份** 添加一个备份目标
@@ -981,7 +987,7 @@ aliases:
 独立标题、源码编辑、实时预览、双向滚动、专注模式、打字机模式、大纲与版本历史。
 
 @tab 组织
-最多 12 层且可拖拽排序的文件夹、正文 \`#标签\`、\`[[双链]]\`、反向链接、关系图谱和中文全文搜索。删除文件夹时会保留并提升子文件夹，直属笔记移到上一级。
+最多 12 层且可拖拽排序的文件夹、正文 \`#标签\`、\`[[双链]]\`、反向链接、关系图谱和中文全文搜索。桌面端可以在侧边再开一篇笔记，每个窗格独立选择编辑、分栏或预览；删除文件夹时会保留并提升子文件夹，直属笔记移到上一级。
 
 @tab 搜索与 AI
 命令面板、关键词搜索，以及可选的 Workers AI 语义/混合搜索。每个账号使用独立索引；AI 不可用时自动回退到关键词结果。

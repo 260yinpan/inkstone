@@ -27,7 +27,7 @@ Every new account automatically receives two standard starter notes, one in Chin
 
 | Area | Included |
 | --- | --- |
-| Writing | CodeMirror 6 editor, independently editable note titles, **live preview**, editor/split/preview layouts, synchronized scrolling, outline, **focus mode**, **typewriter mode**, **autosave**, and **version history** |
+| Writing | CodeMirror 6 editor, independently editable note titles, **two-note editor groups**, per-group editor/split/preview layouts, synchronized scrolling, outline, **focus mode**, **typewriter mode**, **autosave**, and **version history** |
 | Markdown | Tables, task lists, footnotes, definition lists, callouts, tabs, **details blocks**, **math**, **Mermaid diagrams**, **syntax highlighting**, **Front Matter**, and Pandoc-style attributes |
 | Organization | Nested folders with drag-and-drop ordering, inline tags, favorites, pinning, archive, trash, **wiki links**, backlinks, block references, note embeds, and a relationship graph |
 | Search | D1 FTS5 **full-text search** with Chinese indexing, filters, recent notes, command-palette navigation, and optional private **semantic/hybrid search** powered by Workers AI |

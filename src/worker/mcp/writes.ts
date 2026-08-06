@@ -10,6 +10,7 @@ import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { broadcastUserCursor } from '../lib/notify'
 import { assertContentSize } from '../lib/request'
+import { enqueueNoteIndex } from './ai-search'
 import { runIdempotent } from './operations'
 import { buildOutline } from './retrieval'
 
@@ -84,6 +85,7 @@ export async function createMcpNote(
       ).bind(context.userId, id, now, hash)
       await context.env.DB.batch([insert, ...derived, change])
       const note = await loadNote(context.env.DB, context.userId, id)
+      await enqueueNoteIndex(context.env.DB, context.userId, id, 'embed')
       await afterMutation(context)
       return note
     },
@@ -260,6 +262,7 @@ export async function restoreMcpNote(
         })
       }
       const note = await loadNote(context.env.DB, context.userId, row.id)
+      await enqueueNoteIndex(context.env.DB, context.userId, row.id, 'embed')
       await afterMutation(context)
       return note
     },
@@ -387,6 +390,9 @@ async function patchNote(
     })
   }
   const note = await loadNote(context.env.DB, context.userId, row.id)
+  if (contentChanged || newTitle !== row.title) {
+    await enqueueNoteIndex(context.env.DB, context.userId, row.id, 'embed')
+  }
   await afterMutation(context)
   return note
 }

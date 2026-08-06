@@ -5,6 +5,7 @@ import { createApp } from '../app'
 import { initializeDatabase } from '../db/schema'
 import type { Env } from '../env'
 import { consumeAttemptBudget, ThrottleError } from '../lib/throttle'
+import { verifyMcpApiKey } from './api-keys'
 import { createInkstoneMcpServer, type McpAuthProps } from './server'
 import { isMcpEnabled, MCP_SUPPORTED_SCOPES } from './settings'
 
@@ -94,6 +95,17 @@ function providerForOrigin(origin: string, env: Env): OAuthProvider<Env> {
     accessTokenTTL: 60 * 60,
     refreshTokenTTL: 30 * 24 * 60 * 60,
     clientRegistrationTTL: 90 * 24 * 60 * 60,
+    // Static API keys let small or generic MCP clients authenticate with a
+    // plain `Authorization: Bearer ink_...` header instead of running the
+    // full OAuth 2.1 dance. Keys are hashed and revocable.
+    resolveExternalToken: async ({ token, env }) => {
+      // This path runs before the API handler, so ensure the schema exists
+      // (cheap after the first request thanks to the initialization cache).
+      await initializeDatabase(env)
+      const auth = await verifyMcpApiKey(env.DB, token)
+      if (!auth) return null
+      return { props: { userId: auth.userId, role: auth.role, scopes: auth.scopes } }
+    },
     clientRegistrationCallback: async ({ request }) => {
       await initializeDatabase(env)
       if (!await isMcpEnabled(env.DB)) {

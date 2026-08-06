@@ -1,23 +1,37 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  AlertTriangle,
   Bot,
   Check,
   Copy,
+  KeyRound,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
+  Trash2,
   Unplug,
 } from 'lucide-react'
 import type { McpGrant, McpSettingsInfo } from '@shared/types'
 import { LoadingBlock } from '../../components/feedback'
-import { SettingRow, Switch } from '../../components/form'
+import { Input, SettingRow, Switch } from '../../components/form'
 import { Tooltip, confirm } from '../../components/overlay'
 import { Badge, Button, IconButton } from '../../components/primitives'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
-import { fullTime } from '../../lib/time'
+import { fullTime, relativeTime } from '../../lib/time'
 import { useUi } from '../../store/ui'
 
-type BusyAction = 'global' | 'write' | 'trash' | 'revoke' | null
+type BusyAction =
+  | 'global'
+  | 'write'
+  | 'trash'
+  | 'revoke'
+  | 'keyCreate'
+  | 'keyRevoke'
+  | 'aiSearch'
+  | 'aiReindex'
+  | 'aiClear'
+  | null
 
 export function McpSettings() {
   const toast = useUi((state) => state.toast)
@@ -26,6 +40,8 @@ export function McpSettings() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [busy, setBusy] = useState<BusyAction>(null)
   const [copied, setCopied] = useState<string | null>(null)
+  const [keyName, setKeyName] = useState('')
+  const [newToken, setNewToken] = useState<string | null>(null)
   const mountedRef = useRef(true)
   const busyRef = useRef<BusyAction>(null)
 
@@ -142,6 +158,120 @@ export function McpSettings() {
     }
   }
 
+  const createKey = async () => {
+    const name = keyName.trim()
+    if (!name) {
+      toast({ title: t('settings.mcp_api_key_name_required'), tone: 'danger' })
+      return
+    }
+    if (!begin('keyCreate')) return
+    try {
+      const result = await api.mcp.createKey(name)
+      if (mountedRef.current) {
+        setInfo((current) => current && ({
+          ...current,
+          apiKeys: [result.key, ...current.apiKeys],
+        }))
+        setKeyName('')
+        setNewToken(result.token)
+      }
+      toast({ title: t('settings.mcp_api_key_created'), tone: 'success' })
+    } catch (error) {
+      fail(error)
+    } finally {
+      finish()
+    }
+  }
+
+  const revokeKey = async (id: string, name: string) => {
+    const approved = await confirm({
+      title: t('settings.mcp_api_key_revoke_title'),
+      description: t('settings.mcp_api_key_revoke_desc', { name }),
+      confirmLabel: t('settings.mcp_api_key_revoke'),
+      tone: 'danger',
+    })
+    if (!approved || !begin('keyRevoke')) return
+    try {
+      await api.mcp.revokeKey(id)
+      if (mountedRef.current) {
+        setInfo((current) => current && ({
+          ...current,
+          apiKeys: current.apiKeys.filter((key) => key.id !== id),
+        }))
+      }
+      toast({ title: t('settings.mcp_api_key_revoked'), tone: 'success' })
+    } catch (error) {
+      fail(error)
+    } finally {
+      finish()
+    }
+  }
+
+  const toggleAiSearch = async (enabled: boolean) => {
+    if (!begin('aiSearch')) return
+    try {
+      const status = await api.mcp.aiSearch.save(enabled)
+      if (mountedRef.current) {
+        setInfo((current) => current && ({
+          ...current,
+          aiSearch: status,
+        }))
+      }
+      toast({ title: enabled ? t('settings.mcp_ai_search_enabled') : t('settings.mcp_ai_search_disabled'), tone: 'success' })
+    } catch (error) {
+      fail(error)
+    } finally {
+      finish()
+    }
+  }
+
+  const reindexAi = async () => {
+    const approved = await confirm({
+      title: t('settings.mcp_ai_search_reindex_title'),
+      description: t('settings.mcp_ai_search_reindex_desc'),
+      confirmLabel: t('settings.mcp_ai_search_reindex'),
+    })
+    if (!approved || !begin('aiReindex')) return
+    try {
+      const result = await api.mcp.aiSearch.reindex()
+      if (mountedRef.current) {
+        setInfo((current) => current && ({
+          ...current,
+          aiSearch: { ...current.aiSearch, pendingCount: current.aiSearch.pendingCount + result.enqueued },
+        }))
+      }
+      toast({ title: t('settings.mcp_ai_search_reindexed', { count: result.enqueued }), tone: 'success' })
+    } catch (error) {
+      fail(error)
+    } finally {
+      finish()
+    }
+  }
+
+  const clearAi = async () => {
+    const approved = await confirm({
+      title: t('settings.mcp_ai_search_clear_title'),
+      description: t('settings.mcp_ai_search_clear_desc'),
+      confirmLabel: t('settings.mcp_ai_search_clear'),
+      tone: 'danger',
+    })
+    if (!approved || !begin('aiClear')) return
+    try {
+      const result = await api.mcp.aiSearch.clear()
+      if (mountedRef.current) {
+        setInfo((current) => current && ({
+          ...current,
+          aiSearch: { ...current.aiSearch, indexedCount: 0, pendingCount: 0 },
+        }))
+      }
+      toast({ title: t('settings.mcp_ai_search_cleared', { count: result.removed }), tone: 'success' })
+    } catch (error) {
+      fail(error)
+    } finally {
+      finish()
+    }
+  }
+
   const copy = async (id: string, value: string) => {
     try {
       await navigator.clipboard.writeText(value)
@@ -170,6 +300,7 @@ export function McpSettings() {
   }
 
   const preferences = info.preferences
+  const aiSearch = info.aiSearch
 
   return (
     <div className="space-y-6">
@@ -238,6 +369,136 @@ export function McpSettings() {
             onChange={(trashEnabled) => void savePreference('trash', { trashEnabled })}
           />
         </SettingRow>
+      </section>
+
+      <section>
+        <h3 className="mb-2 px-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+          {t('settings.mcp_api_keys')}
+        </h3>
+        <p className="mb-3 px-1 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">
+          {t('settings.mcp_api_keys_desc')}
+        </p>
+
+        {newToken && (
+          <div className="mb-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3">
+            <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-[var(--text-primary)]">
+              <KeyRound size={12} className="text-[var(--accent)]" />
+              {t('settings.mcp_api_key_copy_warning')}
+            </div>
+            <div className="flex items-center gap-2">
+              <code className="min-w-0 flex-1 break-all rounded-[var(--r-sm)] bg-[var(--bg-base)] px-2.5 py-2 font-mono text-[11px] text-[var(--text-secondary)]">
+                {newToken}
+              </code>
+              <Button size="sm" variant="secondary" icon={copied === 'new-token' ? <Check size={12} /> : <Copy size={12} />}
+                onClick={() => void copy('new-token', newToken)}>
+                {copied === 'new-token' ? t('common.copied') : t('common.copy')}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setNewToken(null)}>{t('common.close')}</Button>
+            </div>
+            <p className="mt-1.5 text-[10.5px] text-[var(--text-quaternary)]">{t('settings.mcp_api_key_show_once')}</p>
+          </div>
+        )}
+
+        <div className="mb-2 flex items-center gap-2">
+          <Input
+            value={keyName}
+            onChange={(e) => setKeyName(e.target.value)}
+            maxLength={80}
+            placeholder={t('settings.mcp_api_key_name_placeholder')}
+            onKeyDown={(e) => { if (e.key === 'Enter') void createKey() }}
+          />
+          <Button variant="secondary" icon={<KeyRound size={13} />} loading={busy === 'keyCreate'}
+            disabled={Boolean(busy) || !info.enabled} onClick={() => void createKey()}>
+            {t('settings.mcp_api_key_create')}
+          </Button>
+        </div>
+
+        {info.apiKeys.length ? (
+          <div className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)]">
+            {info.apiKeys.map((key) => (
+              <div key={key.id} className="flex items-center gap-3 border-b border-[var(--border-subtle)] p-3.5 last:border-b-0">
+                <span className="rounded-[var(--r-sm)] bg-[var(--bg-raised)] p-2 text-[var(--text-tertiary)]">
+                  <KeyRound size={15} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[12.5px] font-medium text-[var(--text-primary)]">{key.name}</div>
+                  <div className="mt-0.5 truncate text-[10.5px] text-[var(--text-quaternary)]">
+                    {scopeSummary(key.scopes)}
+                    {' · '}
+                    {key.lastUsedAt
+                      ? t('settings.mcp_api_key_used', { time: relativeTime(key.lastUsedAt) })
+                      : t('settings.mcp_api_key_unused')}
+                    {' · '}{t('settings.mcp_granted_at', { time: fullTime(key.createdAt) })}
+                  </div>
+                </div>
+                <Tooltip label={t('settings.mcp_api_key_revoke')} side="left">
+                  <IconButton
+                    label={t('settings.mcp_api_key_revoke')}
+                    size="sm"
+                    disabled={Boolean(busy)}
+                    onClick={() => void revokeKey(key.id, key.name)}
+                  >
+                    <Trash2 size={14} />
+                  </IconButton>
+                </Tooltip>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-[var(--r-lg)] border border-dashed border-[var(--border-default)] p-5 text-center text-[11.5px] text-[var(--text-quaternary)]">
+            {t('settings.mcp_api_keys_empty')}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <div className="mb-2 flex items-center justify-between gap-3 px-1">
+          <div className="flex items-center gap-1.5">
+            <Sparkles size={13} className="text-[var(--accent)]" />
+            <h3 className="text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+              {t('settings.mcp_ai_search')}
+            </h3>
+            {aiSearch.available ? (
+              <Badge tone={aiSearch.enabled ? 'success' : 'neutral'}>
+                {aiSearch.enabled ? t('settings.enabled') : t('settings.mcp_disabled')}
+              </Badge>
+            ) : (
+              <Badge tone="warning">{t('settings.mcp_ai_search_unavailable')}</Badge>
+            )}
+          </div>
+          <Switch
+            checked={aiSearch.enabled}
+            disabled={!info.enabled || !aiSearch.available || Boolean(busy)}
+            label={t('settings.mcp_ai_search')}
+            onChange={(enabled) => void toggleAiSearch(enabled)}
+          />
+        </div>
+        <div className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3.5">
+          <p className="text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">
+            {t('settings.mcp_ai_search_desc')}
+          </p>
+          {aiSearch.available ? (
+            <p className="mt-2 text-[10.5px] text-[var(--text-quaternary)]">
+              {t('settings.mcp_ai_search_indexed', { count: aiSearch.indexedCount })}
+              {aiSearch.pendingCount > 0 && ` · ${t('settings.mcp_ai_search_pending', { count: aiSearch.pendingCount })}`}
+            </p>
+          ) : (
+            <p className="mt-2 flex items-center gap-1.5 text-[10.5px] text-[var(--danger)]">
+              <AlertTriangle size={12} />
+              {t('settings.mcp_ai_search_unavailable_desc')}
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="secondary" icon={<RefreshCw size={12} />} loading={busy === 'aiReindex'}
+              disabled={!aiSearch.enabled || Boolean(busy)} onClick={() => void reindexAi()}>
+              {t('settings.mcp_ai_search_reindex')}
+            </Button>
+            <Button size="sm" variant="ghost" icon={<Trash2 size={12} />} loading={busy === 'aiClear'}
+              disabled={Boolean(busy)} onClick={() => void clearAi()}>
+              {t('settings.mcp_ai_search_clear')}
+            </Button>
+          </div>
+        </div>
       </section>
 
       <section>
@@ -339,6 +600,11 @@ function clientSnippets(info: McpSettingsInfo): Array<{ id: string; name: string
     url: endpoint,
     oauth: { scopes: scopeText },
   })
+  const bearerJson = JSON.stringify({
+    type: 'http',
+    url: endpoint,
+    headers: { Authorization: 'Bearer <API_KEY>' },
+  })
   return [
     {
       id: 'codex',
@@ -359,6 +625,11 @@ function clientSnippets(info: McpSettingsInfo): Array<{ id: string; name: string
       id: 'openclaw',
       name: 'OpenClaw',
       value: `openclaw mcp add inkstone --url "${endpoint}" --transport streamable-http --auth oauth --oauth-scope "${scopeText}"\nopenclaw mcp login inkstone`,
+    },
+    {
+      id: 'generic',
+      name: t('settings.mcp_generic_client'),
+      value: t('settings.mcp_generic_client_snippet', { endpoint, bearerJson }),
     },
   ]
 }

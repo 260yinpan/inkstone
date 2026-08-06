@@ -25,6 +25,7 @@ import { isValidId, newId } from '../lib/id'
 import { broadcastCursor } from '../lib/notify'
 import { assertContentSize, clampInt, JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
+import { enqueueNoteIndex } from '../mcp/ai-search'
 
 export const notesRoutes = new Hono<AppBindings>()
 
@@ -152,6 +153,11 @@ notesRoutes.post('/trash/empty', async (c) => {
       c.env.DB
         .prepare(`DELETE FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`)
         .bind(userId),
+      c.env.DB.prepare(
+        `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
+         SELECT ?1, id, 'delete', ?2
+           FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`,
+      ).bind(userId, Date.now()),
     )
     await c.env.DB.batch(statements)
   }
@@ -241,6 +247,9 @@ notesRoutes.post('/', async (c) => {
     .first<NoteRow>()
   if (!created) throw ApiError.conflict('This note id is already in use')
   await broadcastCursor(c)
+  if (insertResult?.meta.changes) {
+    await enqueueNoteIndex(c.env.DB, userId, id, 'embed')
+  }
   const note = toNote(created)
   return c.json(note, insertResult?.meta.changes ? 201 : 200)
 })
@@ -413,6 +422,9 @@ notesRoutes.patch('/:id', async (c) => {
     throw ApiError.conflict('This note was modified elsewhere', { server: current })
   }
   await broadcastCursor(c)
+  if (contentChanged || newTitle !== row.title) {
+    await enqueueNoteIndex(c.env.DB, userId, id, 'embed')
+  }
   const note = await loadNote(c.env.DB, userId, id)
   return c.json(note)
 })
@@ -496,6 +508,7 @@ notesRoutes.post('/:id/restore', async (c) => {
     throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(c.env.DB, userId, id) })
   }
   await broadcastCursor(c)
+  await enqueueNoteIndex(c.env.DB, userId, id, 'embed')
   const note = await loadNote(c.env.DB, userId, id)
   return c.json(note)
 })
@@ -545,6 +558,10 @@ notesRoutes.delete('/:id/purge', async (c) => {
     ).bind(id, userId, row.rev),
     c.env.DB.prepare(`DELETE FROM tags WHERE user_id = ?1 AND id NOT IN (SELECT tag_id FROM note_tags)`)
       .bind(userId),
+    c.env.DB.prepare(
+      `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
+       SELECT ?1, ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}`,
+    ).bind(userId, id, Date.now(), id, userId, row.rev),
   )
   const results = await c.env.DB.batch(statements)
   const changeResult = results.at(-3) as D1Result<{ seq: number }> | undefined
@@ -618,6 +635,7 @@ notesRoutes.post('/:id/duplicate', async (c) => {
   }).statements
   await c.env.DB.batch([insert, ...derived, changeStatement(c.env.DB, userId, 'note', id, 'upsert')])
   await broadcastCursor(c)
+  await enqueueNoteIndex(c.env.DB, userId, id, 'embed')
   const note = await loadNote(c.env.DB, userId, id)
   return c.json(note, 201)
 })
@@ -741,6 +759,7 @@ notesRoutes.post('/:id/versions/:versionId/restore', async (c) => {
     throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(c.env.DB, userId, id) })
   }
   await broadcastCursor(c)
+  await enqueueNoteIndex(c.env.DB, userId, id, 'embed')
   const note = await loadNote(c.env.DB, userId, id)
   return c.json(note)
 })

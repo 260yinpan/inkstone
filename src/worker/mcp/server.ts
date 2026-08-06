@@ -59,23 +59,30 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
     'search',
     {
       title: 'Search Inkstone',
-      description: 'Search private Inkstone notes. Returns citation-ready note ids, titles, and absolute URLs. Use before fetch.',
-      inputSchema: z.object({ query: z.string().trim().min(1).max(512) }),
+      description: 'Search private Inkstone notes by keyword and meaning. Returns citation-ready note ids, titles, and absolute URLs. Use before fetch.',
+      inputSchema: z.object({
+        query: z.string().trim().min(1).max(512),
+        mode: z.enum(['auto', 'lexical', 'semantic', 'hybrid']).default('auto')
+          .describe('auto: hybrid when AI semantic search is enabled, else keyword search; lexical: keyword only; semantic: meaning only; hybrid: both merged'),
+      }),
       outputSchema: z.object({
         results: z.array(z.object({ id: z.string(), title: z.string(), url: z.string().url() })),
       }),
       annotations: readOnlyAnnotations(),
     },
-    async ({ query }, ctx) => safeTool(async () => {
+    async ({ query, mode }, ctx) => safeTool(async () => {
       requireScope(ctx, options.auth, MCP_SCOPES.read)
       const found = await searchMcpNotes(
         options.env,
         options.auth.userId,
         options.origin,
         options.ftsEnabled,
-        { query, limit: 8 },
+        { query, limit: 8, mode },
       )
-      const value = { results: found.results.map(({ id, title, url }) => ({ id, title, url })) }
+      const value = {
+        results: found.results.map(({ id, title, url }) => ({ id, title, url })),
+        mode: found.mode,
+      }
       return structured(value)
     }),
   )
@@ -105,7 +112,7 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
     'search_notes',
     {
       title: 'Advanced note search',
-      description: 'Search notes with tag, folder, starred, and archive filters.',
+      description: 'Search notes with tag, folder, starred, and archive filters; optionally combines keyword and AI semantic search.',
       inputSchema: z.object({
         query: z.string().trim().min(1).max(512),
         limit: z.number().int().min(1).max(20).default(10),
@@ -113,6 +120,8 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
         folder: z.string().trim().min(1).max(120).optional(),
         starred: z.boolean().optional(),
         archived: z.boolean().optional(),
+        mode: z.enum(['auto', 'lexical', 'semantic', 'hybrid']).default('auto')
+          .describe('auto: hybrid when AI semantic search is enabled, else keyword search; lexical: keyword only; semantic: meaning only; hybrid: both merged'),
       }),
       outputSchema: generalOutputSchema,
       annotations: readOnlyAnnotations(),

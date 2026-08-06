@@ -22,6 +22,11 @@ export interface Env {
   APP_NAME?: string
 
   PUBLIC_URL?: string
+
+  /** Workers AI binding for semantic search; optional so AI search degrades gracefully. */
+  AI?: {
+    run: <T = unknown>(model: string, inputs: unknown) => Promise<T>
+  }
 }
 
 export interface DatabaseState {

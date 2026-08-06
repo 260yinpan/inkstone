@@ -10,6 +10,8 @@ import type {
   GraphResponse,
   ImportResult,
   ListNotesResponse,
+  McpAiSearchStatus,
+  McpApiKey,
   McpSettingsInfo,
   Note,
   NoteVersion,
@@ -360,6 +362,18 @@ export const api = {
     }>('/api/mcp', { method: 'PUT', body }),
     revokeGrant: (id: string) => request<{ ok: true }>(`/api/mcp/grants/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     revokeAllGrants: () => request<{ ok: true; revoked: number }>('/api/mcp/grants/revoke-all', { method: 'POST' }),
+    createKey: (name: string) =>
+      request<{ key: McpApiKey; token: string }>('/api/mcp/keys', { method: 'POST', body: { name } }),
+    revokeKey: (id: string) =>
+      request<{ ok: true }>(`/api/mcp/keys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    aiSearch: {
+      save: (enabled: boolean) =>
+        request<McpAiSearchStatus>('/api/mcp/ai-search', { method: 'PUT', body: { enabled } }),
+      reindex: () =>
+        request<{ ok: true; enqueued: number }>('/api/mcp/ai-search/reindex', { method: 'POST' }),
+      clear: () =>
+        request<{ ok: true; removed: number }>('/api/mcp/ai-search/clear', { method: 'POST' }),
+    },
   },
 
   update: {

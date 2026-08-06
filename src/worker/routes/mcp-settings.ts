@@ -4,6 +4,18 @@ import { ApiError } from '../lib/errors'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import {
+  clearAiIndex,
+  drainAiIndexQueue,
+  enqueueAllNotesForIndex,
+  getAiSearchStatus,
+  setAiSearchEnabled,
+} from '../mcp/ai-search'
+import {
+  createMcpApiKey,
+  listMcpApiKeys,
+  revokeMcpApiKey,
+} from '../mcp/api-keys'
+import {
   getMcpPreferences,
   isMcpEnabled,
   setMcpEnabled,
@@ -16,7 +28,11 @@ mcpSettingsRoutes.use('*', requireAuth)
 
 mcpSettingsRoutes.get('/', async (c) => {
   const user = c.get('user')
-  const preferences = await getMcpPreferences(c.env.DB, user.id)
+  const [preferences, apiKeys, aiSearch] = await Promise.all([
+    getMcpPreferences(c.env.DB, user.id),
+    listMcpApiKeys(c.env.DB, user.id),
+    getAiSearchStatus(c.env.DB, c.env, user.id),
+  ])
   const grants = c.env.OAUTH_PROVIDER
     ? await collectGrants(c.env.OAUTH_PROVIDER, user.id)
     : []
@@ -27,6 +43,8 @@ mcpSettingsRoutes.get('/', async (c) => {
     endpoint: `${origin}/mcp`,
     oauth: true,
     preferences,
+    apiKeys,
+    aiSearch,
     grants,
     privacy: {
       publicEndpoint: false,
@@ -63,6 +81,51 @@ mcpSettingsRoutes.put('/', async (c) => {
     preferences,
     reconnectRequired: body.writeEnabled !== undefined || body.trashEnabled !== undefined,
   })
+})
+
+mcpSettingsRoutes.post('/keys', async (c) => {
+  const user = c.get('user')
+  const body = await readJson<{ name?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const name = typeof body.name === 'string' ? body.name.trim() : ''
+  if (!name || name.length > 80) throw ApiError.badRequest('name must be 1-80 characters')
+  const created = await createMcpApiKey(c.env.DB, user.id, name)
+  return c.json({ key: created.record, token: created.token }, 201)
+})
+
+mcpSettingsRoutes.delete('/keys/:id', async (c) => {
+  const revoked = await revokeMcpApiKey(c.env.DB, c.get('userId'), c.req.param('id'))
+  if (!revoked) throw ApiError.notFound('API key not found')
+  return c.json({ ok: true })
+})
+
+mcpSettingsRoutes.get('/ai-search', async (c) => {
+  return c.json(await getAiSearchStatus(c.env.DB, c.env, c.get('userId')))
+})
+
+mcpSettingsRoutes.put('/ai-search', async (c) => {
+  const userId = c.get('userId')
+  const body = await readJson<{ enabled?: unknown }>(c, JSON_BODY_LIMITS.small)
+  if (typeof body.enabled !== 'boolean') throw ApiError.badRequest('enabled must be a boolean')
+  await setAiSearchEnabled(c.env.DB, userId, body.enabled)
+  if (body.enabled) {
+    const enqueued = await enqueueAllNotesForIndex(c.env.DB, userId)
+    // Kick off the first batch immediately; the rest is drained by the cron.
+    c.executionCtx.waitUntil(drainAiIndexQueue(c.env, 30).catch(() => {}))
+    return c.json({ ...await getAiSearchStatus(c.env.DB, c.env, userId), enqueued })
+  }
+  return c.json(await getAiSearchStatus(c.env.DB, c.env, userId))
+})
+
+mcpSettingsRoutes.post('/ai-search/reindex', async (c) => {
+  const userId = c.get('userId')
+  const enqueued = await enqueueAllNotesForIndex(c.env.DB, userId)
+  c.executionCtx.waitUntil(drainAiIndexQueue(c.env, 30).catch(() => {}))
+  return c.json({ ok: true, enqueued })
+})
+
+mcpSettingsRoutes.post('/ai-search/clear', async (c) => {
+  const removed = await clearAiIndex(c.env.DB, c.get('userId'))
+  return c.json({ ok: true, removed })
 })
 
 mcpSettingsRoutes.delete('/grants/:id', async (c) => {

@@ -13,12 +13,14 @@ const MCP_ENABLED_KEY = 'mcp-enabled-v1'
 export interface McpPreferences {
   writeEnabled: boolean
   trashEnabled: boolean
+  aiSearchEnabled: boolean
   updatedAt: number
 }
 
 interface McpPreferencesRow {
   write_enabled: number
   trash_enabled: number
+  ai_search_enabled: number | null
   updated_at: number
 }
 
@@ -33,7 +35,7 @@ export async function setMcpEnabled(db: D1Database, enabled: boolean): Promise<v
 
 export async function getMcpPreferences(db: D1Database, userId: string): Promise<McpPreferences> {
   const row = await db.prepare(
-    `SELECT write_enabled, trash_enabled, updated_at
+    `SELECT write_enabled, trash_enabled, ai_search_enabled, updated_at
        FROM mcp_preferences WHERE user_id = ?1`,
   )
     .bind(userId)
@@ -44,7 +46,7 @@ export async function getMcpPreferences(db: D1Database, userId: string): Promise
 export async function updateMcpPreferences(
   db: D1Database,
   userId: string,
-  patch: Partial<Pick<McpPreferences, 'writeEnabled' | 'trashEnabled'>>,
+  patch: Partial<Pick<McpPreferences, 'writeEnabled' | 'trashEnabled' | 'aiSearchEnabled'>>,
 ): Promise<McpPreferences> {
   const current = await getMcpPreferences(db, userId)
   const next = { ...current, ...patch, updatedAt: Date.now() }
@@ -59,16 +61,18 @@ export async function putMcpPreferences(
 ): Promise<void> {
   await db.prepare(
     `INSERT INTO mcp_preferences (
-       user_id, write_enabled, trash_enabled, updated_at
-     ) VALUES (?1, ?2, ?3, ?4)
+       user_id, write_enabled, trash_enabled, ai_search_enabled, updated_at
+     ) VALUES (?1, ?2, ?3, ?4, ?5)
      ON CONFLICT(user_id) DO UPDATE SET
        write_enabled = excluded.write_enabled,
        trash_enabled = excluded.trash_enabled,
+       ai_search_enabled = excluded.ai_search_enabled,
        updated_at = excluded.updated_at`,
   ).bind(
     userId,
     value.writeEnabled ? 1 : 0,
     value.trashEnabled ? 1 : 0,
+    value.aiSearchEnabled ? 1 : 0,
     value.updatedAt,
   ).run()
 }
@@ -88,6 +92,7 @@ function defaultMcpPreferences(): McpPreferences {
   return {
     writeEnabled: true,
     trashEnabled: false,
+    aiSearchEnabled: false,
     updatedAt: 0,
   }
 }
@@ -96,6 +101,8 @@ function toPreferences(row: McpPreferencesRow): McpPreferences {
   return {
     writeEnabled: row.write_enabled === 1,
     trashEnabled: row.trash_enabled === 1,
+    // Older databases lack the column; migration v2 backfills it.
+    aiSearchEnabled: row.ai_search_enabled === 1,
     updatedAt: row.updated_at,
   }
 }

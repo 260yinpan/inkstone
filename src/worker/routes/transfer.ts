@@ -20,6 +20,7 @@ import {
   pruneOrphanTags,
   runBatched,
 } from '../db/writes'
+import { enqueueNoteIndex } from '../mcp/ai-search'
 import {
   assertArchiveCanBeRestored,
   assertBundleCanBeRestored,
@@ -976,6 +977,7 @@ async function updateImportedNote(
   existing.title = title
   existing.rev = nextRev
   existing.updated_at = updatedAt
+  await enqueueNoteIndex(c.env.DB, userId, current.id, 'embed')
   return 'updated'
 }
 
@@ -1068,6 +1070,7 @@ async function insertNote(
   }
   if (!inserted) throw new Error('Could not generate a unique note ID')
 
+  if (!deleted) await enqueueNoteIndex(c.env.DB, userId, id, 'embed')
   return id
 }
 

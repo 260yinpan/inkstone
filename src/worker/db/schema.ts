@@ -241,6 +241,38 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_mcp_operations_created
      ON mcp_operations(created_at)`,
+
+  `CREATE TABLE IF NOT EXISTS mcp_api_keys (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,
+    scopes TEXT NOT NULL DEFAULT 'notes:read',
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER,
+    revoked_at INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_mcp_api_keys_user
+     ON mcp_api_keys(user_id, revoked_at)`,
+
+  `CREATE TABLE IF NOT EXISTS ai_note_embeddings (
+    user_id TEXT NOT NULL,
+    note_id TEXT NOT NULL,
+    model TEXT NOT NULL,
+    vector BLOB NOT NULL,
+    indexed_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, note_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_embeddings_indexed
+     ON ai_note_embeddings(user_id, indexed_at)`,
+
+  `CREATE TABLE IF NOT EXISTS ai_index_queue (
+    user_id TEXT NOT NULL,
+    note_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('embed', 'delete')),
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, note_id)
+  )`,
 ]
 
 interface SchemaMigration {
@@ -254,6 +286,45 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     statements: SCHEMA_STATEMENTS.filter((statement) =>
       /(?:schema_migrations|mcp_preferences|mcp_operations|idx_mcp_)/.test(statement),
     ),
+  },
+  {
+    // ai_search_enabled is added by migration only so that fresh databases
+    // (created from SCHEMA_STATEMENTS above) and pre-existing databases
+    // converge on the same column without ALTER conflicts.
+    version: 2,
+    statements: [
+      `ALTER TABLE mcp_preferences ADD COLUMN
+        ai_search_enabled INTEGER NOT NULL DEFAULT 0 CHECK (ai_search_enabled IN (0, 1))`,
+      `CREATE TABLE IF NOT EXISTS mcp_api_keys (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        key_hash TEXT NOT NULL UNIQUE,
+        scopes TEXT NOT NULL DEFAULT 'notes:read',
+        created_at INTEGER NOT NULL,
+        last_used_at INTEGER,
+        revoked_at INTEGER
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_mcp_api_keys_user
+         ON mcp_api_keys(user_id, revoked_at)`,
+      `CREATE TABLE IF NOT EXISTS ai_note_embeddings (
+        user_id TEXT NOT NULL,
+        note_id TEXT NOT NULL,
+        model TEXT NOT NULL,
+        vector BLOB NOT NULL,
+        indexed_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, note_id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_ai_embeddings_indexed
+         ON ai_note_embeddings(user_id, indexed_at)`,
+      `CREATE TABLE IF NOT EXISTS ai_index_queue (
+        user_id TEXT NOT NULL,
+        note_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('embed', 'delete')),
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, note_id)
+      )`,
+    ],
   },
 ]
 
@@ -316,6 +387,9 @@ const REQUIRED_TABLES = [
   'login_attempts',
   'mcp_preferences',
   'mcp_operations',
+  'mcp_api_keys',
+  'ai_note_embeddings',
+  'ai_index_queue',
 ] as const
 
 const REQUIRED_INDEXES = [
@@ -345,6 +419,8 @@ const REQUIRED_INDEXES = [
   'idx_sessions_expires',
   'idx_login_attempts_last_fail',
   'idx_mcp_operations_created',
+  'idx_mcp_api_keys_user',
+  'idx_ai_embeddings_indexed',
 ] as const
 
 

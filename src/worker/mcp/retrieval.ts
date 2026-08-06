@@ -5,11 +5,20 @@ import { NOTE_COLUMNS, NOTE_COLUMNS_FULL, toNote, toNoteSummary, type NoteRow } 
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { searchUserNotes } from '../routes/search'
+import {
+  fuseByRrf,
+  searchSemanticNotes,
+  semanticSnippet,
+  type SemanticSearchHit,
+} from './ai-search'
 
 const FETCH_MAX_CHARS = 80_000
 const READ_DEFAULT_CHARS = 12_000
 const READ_MAX_CHARS = 40_000
 const SEARCH_CANDIDATES = 40
+const HYBRID_CANDIDATES = 24
+
+export type McpSearchMode = 'auto' | 'lexical' | 'semantic' | 'hybrid'
 
 export interface McpSearchOptions {
   query: string
@@ -18,6 +27,7 @@ export interface McpSearchOptions {
   folder?: string
   starred?: boolean
   archived?: boolean
+  mode?: McpSearchMode
 }
 
 export interface McpSearchHit {
@@ -28,12 +38,12 @@ export interface McpSearchHit {
   score: number
   rev: number
   updatedAt: number
-  source: 'lexical'
+  source: 'lexical' | 'semantic' | 'both'
 }
 
 export interface McpSearchResponse {
   results: McpSearchHit[]
-  mode: 'lexical'
+  mode: 'lexical' | 'semantic' | 'hybrid'
 }
 
 export interface NoteOutlineItem {
@@ -51,21 +61,85 @@ export async function searchMcpNotes(
   options: McpSearchOptions,
 ): Promise<McpSearchResponse> {
   const limit = Math.max(1, Math.min(20, options.limit ?? 8))
+  const mode = options.mode ?? 'auto'
   const lexicalQuery = composeLexicalQuery(options)
-  const { results } = await searchUserNotes(env.DB, userId, lexicalQuery, SEARCH_CANDIDATES, ftsEnabled)
-  return {
-    results: results.slice(0, limit).map((hit) => ({
-      id: hit.note.id,
-      title: hit.note.title,
-      url: noteUrl(origin, hit.note.id),
-      snippet: hit.snippet,
-      score: hit.score,
-      rev: hit.note.rev,
-      updatedAt: hit.note.updatedAt,
-      source: 'lexical' as const,
-    })),
-    mode: 'lexical',
+  const { results: lexical } = await searchUserNotes(
+    env.DB, userId, lexicalQuery, SEARCH_CANDIDATES, ftsEnabled,
+  )
+  const lexicalHits: LexicalHit[] = lexical.map((hit) => ({
+    id: hit.note.id,
+    title: hit.note.title,
+    url: noteUrl(origin, hit.note.id),
+    snippet: hit.snippet,
+    score: hit.score,
+    rev: hit.note.rev,
+    updatedAt: hit.note.updatedAt,
+    excerpt: hit.note.excerpt,
+  }))
+
+  const wantsSemantic = mode === 'auto' || mode === 'hybrid' || mode === 'semantic'
+  let semanticHits: SemanticSearchHit[] | null = null
+  if (wantsSemantic) {
+    try {
+      semanticHits = await searchSemanticNotes(env, env.DB, userId, options.query, {
+        tags: options.tags,
+        folder: options.folder,
+        starred: options.starred,
+        archived: options.archived,
+      })
+    } catch (error) {
+      // AI unavailable, rate-limited, or malformed response: degrade to lexical.
+      console.warn('[inkstone] Semantic search unavailable; using lexical:', error instanceof Error ? error.message : error)
+      semanticHits = null
+    }
   }
+  if (!semanticHits || !semanticHits.length) {
+    return {
+      results: lexicalHits.slice(0, limit).map((hit) => ({ ...hit, source: 'lexical' as const })),
+      mode: 'lexical',
+    }
+  }
+
+  const semanticCandidates: SemanticHit[] = semanticHits.slice(0, HYBRID_CANDIDATES).map((hit) => ({
+    ...hit,
+    url: noteUrl(origin, hit.id),
+  }))
+  const fused = fuseByRrf(lexicalHits, semanticCandidates)
+  const results: McpSearchHit[] = fused.slice(0, limit).map(({ item, sources }) => {
+    const lexicalHit = sources.has('lexical') && isLexicalHit(item) ? item : null
+    const semanticHit = sources.has('semantic') && !isLexicalHit(item) ? item : null
+    return {
+      id: item.id,
+      title: item.title,
+      url: noteUrl(origin, item.id),
+      snippet: lexicalHit?.snippet ?? (semanticHit ? semanticSnippet(semanticHit.excerpt) : ''),
+      score: lexicalHit?.score ?? semanticHit?.score ?? item.score,
+      rev: item.rev,
+      updatedAt: item.updatedAt,
+      source: sources.size > 1 ? 'both' : sources.has('semantic') ? 'semantic' : 'lexical',
+    }
+  })
+  return {
+    results,
+    mode: lexicalHits.length && semanticHits.length ? 'hybrid' : 'semantic',
+  }
+}
+
+type LexicalHit = {
+  id: string
+  title: string
+  url: string
+  snippet: string
+  score: number
+  rev: number
+  updatedAt: number
+  excerpt: string
+}
+
+type SemanticHit = SemanticSearchHit & { url: string }
+
+function isLexicalHit(hit: LexicalHit | SemanticHit): hit is LexicalHit {
+  return 'snippet' in hit
 }
 
 export async function loadMcpNote(db: D1Database, userId: string, id: string): Promise<Note> {

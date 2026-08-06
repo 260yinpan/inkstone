@@ -47,6 +47,9 @@ storage = "sqlite"
 type = "durable-object"
 storage = "sqlite"
 
+[ai]
+binding = "AI"
+
 [triggers]
 crons = ["0 * * * *", "15,45 * * * *"]
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, Download, FileJson, FileUp, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
+import { AlertCircle, Download, FileJson, FileUp, ImageIcon, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { formatBytes, formatNumber } from '../../lib/time';
 import { Button } from '../../components/primitives';
@@ -8,8 +8,10 @@ import { SettingRow } from '../../components/form';
 import { confirm } from '../../components/overlay';
 import { useUi } from '../../store/ui';
 import { useNotes } from '../../store/notes';
+import { AttachmentManager } from '../attachments/AttachmentManager';
 import { t } from "../../lib/i18n";
 export function DataSettings() {
+    const [attachmentManagerOpen, setAttachmentManagerOpen] = useState(false);
     const [stats, setStats] = useState<Record<string, number> | null>(null);
     const [statsError, setStatsError] = useState<string | null>(null);
     const [busy, setBusy] = useState<string | null>(null);
@@ -112,6 +114,14 @@ export function DataSettings() {
           {stats.attachmentBytes ? (<p className="mt-2 text-[11.5px] text-[var(--text-quaternary)]">{t("settings.attachment_storage")}{formatBytes(stats.attachmentBytes)}
             </p>) : null}
         </>)}
+      </section>
+
+      <section>
+        <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.attachments")}</h3>
+
+        <SettingRow title={t("attachments.manage")} description={t("attachments.manage_description")}>
+          <Button size="sm" icon={<ImageIcon size={13}/>} onClick={() => setAttachmentManagerOpen(true)}>{t("attachments.manage")}</Button>
+        </SettingRow>
       </section>
 
       <section>
@@ -235,5 +245,7 @@ export function DataSettings() {
         })}>{t("common.clear")}</Button>
         </SettingRow>
       </section>
+
+      <AttachmentManager open={attachmentManagerOpen} onClose={() => setAttachmentManagerOpen(false)} onChanged={() => void loadStats()}/>
     </div>);
 }

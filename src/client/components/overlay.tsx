@@ -530,13 +530,14 @@ function placeTooltip(anchor: DOMRect, tooltip: DOMRect, preferred: TooltipSide)
         left: side === 'right' ? anchor.right + gap : anchor.left - gap - tooltip.width,
     };
 }
-export function Drawer({ open, onClose, side = 'right', width = 380, children, title, }: {
+export function Drawer({ open, onClose, side = 'right', width = 380, children, title, zIndex = 190, }: {
     open: boolean;
     onClose: () => void;
     side?: 'left' | 'right';
     width?: number;
     children: ReactNode;
     title?: ReactNode;
+    zIndex?: number;
 }) {
     const panelRef = useRef<HTMLElement>(null);
     const titleId = useId();
@@ -545,7 +546,7 @@ export function Drawer({ open, onClose, side = 'right', width = 380, children, t
     useDialogFocus(open, panelRef);
     if (!open)
         return null;
-    return createPortal(<div className="fixed inset-0 z-[190]">
+    return createPortal(<div className="fixed inset-0" style={{ zIndex }}>
       <div className="anim-fade absolute inset-0 bg-[var(--scrim)]" onClick={onClose} aria-hidden="true"/>
       <aside ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : t("overlay.side_panel")} tabIndex={-1} className={cn('absolute top-0 bottom-0 flex flex-col border-[var(--border-default)] bg-[var(--bg-surface)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-modal)] outline-none md:py-0', side === 'right' ? 'right-0 border-l' : 'left-0 border-r')} style={{
             width: Math.min(width, window.innerWidth < 768 ? window.innerWidth : window.innerWidth - 32),

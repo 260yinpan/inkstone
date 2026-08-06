@@ -162,13 +162,30 @@ filesRoutes.get('/:id', async (c) => {
 
 
 filesRoutes.get('/', requireAuth, async (c) => {
+  const userId = c.get('userId')
   const { results } = await c.env.DB.prepare(
     `SELECT id, user_id, note_id, filename, mime, size, width, height, storage, created_at
        FROM attachments WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 500`,
   )
-    .bind(c.get('userId'))
+    .bind(userId)
     .all<AttachmentRow>()
-  return c.json({ files: results.map(toAttachment) })
+  const { results: notes } = await c.env.DB.prepare(
+    `SELECT content FROM notes WHERE user_id = ?1 AND deleted_at IS NULL`,
+  )
+    .bind(userId)
+    .all<{ content: string }>()
+  const references = new Map<string, number>()
+  for (const note of notes) {
+    for (const id of extractAttachmentIds(note.content)) {
+      references.set(id, (references.get(id) ?? 0) + 1)
+    }
+  }
+  return c.json({
+    files: results.map((row) => ({
+      ...toAttachment(row),
+      references: references.get(row.id) ?? 0,
+    })),
+  })
 })
 
 filesRoutes.delete('/:id', requireAuth, async (c) => {

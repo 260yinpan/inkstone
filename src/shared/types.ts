@@ -178,6 +178,10 @@ export interface Attachment {
   createdAt: number
 }
 
+export interface AttachmentWithUsage extends Attachment {
+  references: number
+}
+
 
 export type ViewKind =
   | 'all'

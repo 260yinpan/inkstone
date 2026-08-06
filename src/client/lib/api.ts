@@ -2,6 +2,7 @@ import { CLIENT_HEADER } from '@shared/constants'
 import type {
   AppLocale,
   Attachment,
+  AttachmentWithUsage,
   BackupRun,
   BackupTarget,
   BackupTargetInput,
@@ -314,7 +315,7 @@ export const api = {
     ),
 
   files: {
-    list: () => request<{ files: Attachment[] }>('/api/files'),
+    list: () => request<{ files: AttachmentWithUsage[] }>('/api/files'),
     upload: (file: File, noteId?: string) => {
       const form = new FormData()
       form.append('file', file)

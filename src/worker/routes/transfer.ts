@@ -30,7 +30,7 @@ import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { acquireLease } from '../lib/lease'
-import { broadcastCursor } from '../lib/notify'
+import { broadcastCursor, scheduleFtsDrain } from '../lib/notify'
 import { assertContentSize, FORM_BODY_LIMITS, readFormDataWithinLimit } from '../lib/request'
 import { createZip, readZip, type UnzippedEntry } from '@shared/zip'
 import { requireAuth } from '../middleware/auth'
@@ -220,6 +220,7 @@ transferRoutes.post('/import', async (c) => {
 
   await pruneOrphanTags(c.env.DB, userId)
   await broadcastCursor(c)
+  scheduleFtsDrain(c, 20)
   return c.json(result)
 })
 

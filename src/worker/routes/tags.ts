@@ -9,7 +9,7 @@ import { buildNoteDerivedStatements } from '../db/writes'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
-import { broadcastCursor } from '../lib/notify'
+import { broadcastCursor, scheduleFtsDrain } from '../lib/notify'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 
@@ -18,13 +18,20 @@ export const tagsRoutes = new Hono<AppBindings>()
 tagsRoutes.use('*', requireAuth)
 
 const TAG_SELECT = `t.id, t.name, t.color, t.created_at,
-  (SELECT COUNT(*) FROM note_tags nt JOIN notes n ON n.id = nt.note_id
-     WHERE nt.tag_id = t.id AND n.user_id = t.user_id
-       AND n.deleted_at IS NULL AND n.is_archived = 0) AS note_count`
+  COALESCE(nc.count, 0) AS note_count`
+
+const TAG_COUNT_JOIN = `LEFT JOIN (
+  SELECT nt.tag_id, COUNT(*) AS count
+    FROM note_tags nt JOIN notes n ON n.id = nt.note_id
+   WHERE n.user_id = ?1 AND n.deleted_at IS NULL AND n.is_archived = 0
+   GROUP BY nt.tag_id
+) nc ON nc.tag_id = t.id`
 
 tagsRoutes.get('/', async (c) => {
   const { results } = await c.env.DB.prepare(
-    `SELECT ${TAG_SELECT} FROM tags t WHERE t.user_id = ?1 ORDER BY t.name COLLATE NOCASE ASC`,
+    `SELECT ${TAG_SELECT} FROM tags t
+      ${TAG_COUNT_JOIN}
+     WHERE t.user_id = ?1 ORDER BY t.name COLLATE NOCASE ASC`,
   )
     .bind(c.get('userId'))
     .all<TagRow>()
@@ -100,6 +107,7 @@ tagsRoutes.patch('/:id', async (c) => {
         throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
       }
       await broadcastCursor(c)
+      scheduleFtsDrain(c)
       return c.json({ ok: true, renamed: rewritten })
     }
   }
@@ -118,8 +126,12 @@ tagsRoutes.patch('/:id', async (c) => {
     if (!updated?.meta.changes) throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
     await broadcastCursor(c)
   }
-  const row = await c.env.DB.prepare(`SELECT ${TAG_SELECT} FROM tags t WHERE t.id = ?1 AND t.user_id = ?2`)
-    .bind(id, userId)
+  const row = await c.env.DB.prepare(
+    `SELECT ${TAG_SELECT} FROM tags t
+      ${TAG_COUNT_JOIN}
+     WHERE t.id = ?2 AND t.user_id = ?1`,
+  )
+    .bind(userId, id)
     .first<TagRow>()
   return c.json(row ? toTag(row) : { ok: true })
 })
@@ -150,6 +162,7 @@ tagsRoutes.delete('/:id', async (c) => {
   const outcomes = await c.env.DB.batch(statements)
   if (!outcomes.at(-1)?.meta.changes) throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
   await broadcastCursor(c)
+  scheduleFtsDrain(c)
   return c.json({ ok: true, affected })
 })
 

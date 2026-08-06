@@ -7,7 +7,7 @@ import {
   SESSION_RENEW_BEFORE_MS,
   SESSION_TTL_MS,
 } from '@shared/constants'
-import { destroySession, renewSession, resolveSession } from '../lib/session-store'
+import { destroySession, hashToken, isSessionToken, renewSession } from '../lib/session-store'
 import { ApiError } from '../lib/errors'
 import type { AppBindings, Variables } from '../env'
 
@@ -24,6 +24,8 @@ interface UserRow {
 
 export const USER_COLUMNS = `id, username, login, name, avatar_url, role, settings, created_at`
 
+const USER_COLUMNS_ALIASED = USER_COLUMNS.split(', ').map((column) => `u.${column}`).join(', ')
+
 export function rowToUser(row: UserRow): Variables['user'] {
   return {
     id: row.id,
@@ -39,23 +41,34 @@ export function rowToUser(row: UserRow): Variables['user'] {
 }
 
 
+interface SessionUserRow extends UserRow {
+  session_id: string
+  expires_at: number
+}
+
 export const loadSession = createMiddleware<AppBindings>(async (c, next) => {
   const token = getCookie(c, SESSION_COOKIE)
 
-  if (token) {
-    const session = await resolveSession(c.env.DB, token)
-    if (session) {
-      const row = await c.env.DB.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE id = ?1`)
-        .bind(session.userId)
-        .first<UserRow>()
+  if (token && isSessionToken(token)) {
+    const row = await c.env.DB.prepare(
+      `SELECT ${USER_COLUMNS_ALIASED}, s.id AS session_id, s.expires_at
+         FROM sessions s LEFT JOIN users u ON u.id = s.user_id
+        WHERE s.id = ?1 AND s.expires_at > ?2`,
+    )
+      .bind(await hashToken(token), Date.now())
+      .first<SessionUserRow>()
 
-      if (row) {
+    if (row?.session_id) {
+      if (!row.id) {
+        await destroySession(c.env.DB, token)
+        clearSessionCookie(c)
+      } else {
         c.set('user', rowToUser(row))
         c.set('userId', row.id)
-        c.set('sessionId', session.id)
+        c.set('sessionId', row.session_id)
 
-        if (session.expiresAt - Date.now() < SESSION_RENEW_BEFORE_MS) {
-          await renewSession(c.env.DB, session.id)
+        if (row.expires_at - Date.now() < SESSION_RENEW_BEFORE_MS) {
+          await renewSession(c.env.DB, row.session_id)
           writeSessionCookie(c, token)
         }
         const now = Date.now()
@@ -65,9 +78,6 @@ export const loadSession = createMiddleware<AppBindings>(async (c, next) => {
             .run()
             .catch(() => {}),
         )
-      } else {
-        await destroySession(c.env.DB, token)
-        clearSessionCookie(c)
       }
     } else {
       clearSessionCookie(c)

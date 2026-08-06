@@ -1,12 +1,17 @@
 /** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */
-import { LIMITS } from '@shared/constants'
-import { extractTags, extractWikiLinks, normalizeLinkKey, segmentCJK } from '@shared/markdown-utils'
-import { truncateText } from '@shared/text-utils'
+import { extractTags, extractWikiLinks, normalizeLinkKey } from '@shared/markdown-utils'
 import { newId } from '../lib/id'
 
 
 export type ChangeEntity = 'note' | 'folder' | 'tag' | 'settings' | 'profile'
 export type ChangeOp = 'upsert' | 'delete'
+
+export const FTS_QUEUE_CONFLICT_SQL = `ON CONFLICT(user_id, note_id) DO UPDATE SET
+  kind = excluded.kind,
+  created_at = CASE
+    WHEN excluded.created_at > fts_index_queue.created_at THEN excluded.created_at
+    ELSE fts_index_queue.created_at + 1
+  END`
 
 
 export const LINK_TARGET_SUBQUERY = `(SELECT candidate.id FROM notes candidate
@@ -34,8 +39,14 @@ export async function recordChange(
   entityId: string,
   op: ChangeOp,
 ): Promise<number> {
-  await changeStatement(db, userId, entity, entityId, op).run()
-  return currentCursor(db, userId)
+  const row = await db
+    .prepare(
+      `INSERT INTO changes (user_id, entity, entity_id, op, at) VALUES (?1, ?2, ?3, ?4, ?5)
+       RETURNING seq`,
+    )
+    .bind(userId, entity, entityId, op, Date.now())
+    .first<{ seq: number }>()
+  return row?.seq ?? 0
 }
 
 export async function currentCursor(db: D1Database, userId: string): Promise<number> {
@@ -174,33 +185,19 @@ export function buildNoteDerivedStatements(
   }
 
   if (ftsEnabled) {
+    const queueVersion = opts.expectedUpdatedAt ?? now
     statements.push(
       db
         .prepare(
-          `DELETE FROM notes_fts WHERE note_id = ?1
-            AND ${shiftPlaceholders(guard, 1)}`,
+          `INSERT INTO fts_index_queue (user_id, note_id, kind, created_at)
+           SELECT ?1, ?2, ?3, ?4 WHERE ${shiftPlaceholders(guard, 4)}
+           ${FTS_QUEUE_CONFLICT_SQL}`,
         )
-        .bind(noteId, ...guardValues),
+        .bind(userId, noteId, opts.deleted ? 'delete' : 'upsert', queueVersion, ...guardValues),
     )
-    if (!opts.deleted) {
-      statements.push(
-        db
-          .prepare(
-            `INSERT INTO notes_fts (note_id, user_id, title, body)
-             SELECT ?1, ?2, ?3, ?4 WHERE ${shiftPlaceholders(guard, 4)}`,
-          )
-          .bind(
-            noteId,
-            userId,
-            segmentCJK(title),
-            segmentCJK(truncateText(content, LIMITS.ftsContentChars)),
-            ...guardValues,
-          ),
-      )
-    }
   }
 
-  if (opts.titleChanged !== false) {
+  if (opts.titleChanged === true) {
     const currentKey = normalizeLinkKey(title)
     const previousKey = normalizeLinkKey(opts.previousTitle ?? title)
     statements.push(

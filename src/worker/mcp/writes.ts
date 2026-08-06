@@ -441,6 +441,7 @@ async function afterMutation(context: McpWriteContext): Promise<void> {
     context.env,
     context.userId,
     null,
+    undefined,
     (task) => context.executionCtx.waitUntil(task),
   )
 }

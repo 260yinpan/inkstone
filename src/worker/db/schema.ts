@@ -273,6 +273,16 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     created_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, note_id)
   )`,
+
+  `CREATE TABLE IF NOT EXISTS fts_index_queue (
+    user_id TEXT NOT NULL,
+    note_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('upsert', 'delete')),
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, note_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_fts_index_queue_due
+     ON fts_index_queue(user_id, created_at, note_id)`,
 ]
 
 interface SchemaMigration {
@@ -347,6 +357,25 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       )`,
     ],
   },
+  {
+    version: 3,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS fts_index_queue (
+        user_id TEXT NOT NULL,
+        note_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('upsert', 'delete')),
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, note_id)
+      )`,
+    ],
+  },
+  {
+    version: 4,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_fts_index_queue_due
+         ON fts_index_queue(user_id, created_at, note_id)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -411,6 +440,7 @@ const REQUIRED_TABLES = [
   'mcp_api_keys',
   'ai_note_embeddings',
   'ai_index_queue',
+  'fts_index_queue',
 ] as const
 
 const REQUIRED_INDEXES = [
@@ -442,6 +472,7 @@ const REQUIRED_INDEXES = [
   'idx_mcp_operations_created',
   'idx_mcp_api_keys_user',
   'idx_ai_embeddings_indexed',
+  'idx_fts_index_queue_due',
 ] as const
 
 

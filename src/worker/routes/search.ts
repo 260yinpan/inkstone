@@ -4,7 +4,7 @@ import { segmentCJK, toPlainText } from '@shared/markdown-utils'
 import { sliceText, truncateText } from '@shared/text-utils'
 import type { GraphResponse, SearchHit, SearchResponse } from '@shared/types'
 import type { AppBindings } from '../env'
-import { rebuildFtsIndex } from '../db/fts'
+import { drainFtsQueue, hasPendingFtsWork, rebuildFtsIndex } from '../db/fts'
 import { NOTE_COLUMNS, toNoteSummary, type NoteRow } from '../db/rows'
 import { ApiError } from '../lib/errors'
 import { clampInt } from '../lib/request'
@@ -118,7 +118,17 @@ export async function searchUserNotes(
   const query = parseQuery(truncateText(raw.trim(), 512))
   if (!raw.trim()) return { results: [], mode: ftsEnabled ? 'fts' : 'like', query }
 
-  if (ftsEnabled && query.terms.length && !query.trash) {
+  let useFts = ftsEnabled
+  if (useFts) {
+    try {
+      await drainFtsQueue(db, userId, 50, true)
+      useFts = !(await hasPendingFtsWork(db, userId))
+    } catch {
+      useFts = false
+    }
+  }
+
+  if (useFts && query.terms.length && !query.trash) {
     try {
       return { results: await ftsSearch(db, userId, query, limit), mode: 'fts', query }
     } catch (error) {

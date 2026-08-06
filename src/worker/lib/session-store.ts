@@ -2,12 +2,6 @@ import { SESSION_TTL_MS } from '@shared/constants'
 import { utf8 } from './encoding'
 
 
-interface SessionRecord {
-  id: string
-  userId: string
-  expiresAt: number
-}
-
 function randomToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32))
   let out = ''
@@ -15,14 +9,14 @@ function randomToken(): string {
   return out
 }
 
-async function hashToken(token: string): Promise<string> {
+export async function hashToken(token: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', utf8(token) as BufferSource)
   let out = ''
   for (const b of new Uint8Array(digest)) out += b.toString(16).padStart(2, '0')
   return out
 }
 
-function isSessionToken(token: string): boolean {
+export function isSessionToken(token: string): boolean {
   return /^[a-f0-9]{64}$/.test(token)
 }
 
@@ -36,17 +30,6 @@ export async function createSession(db: D1Database, userId: string): Promise<str
 
   await db.prepare(`DELETE FROM sessions WHERE expires_at < ?1`).bind(now).run()
   return token
-}
-
-export async function resolveSession(db: D1Database, token: string): Promise<SessionRecord | null> {
-  if (!isSessionToken(token)) return null
-  const id = await hashToken(token)
-  const row = await db
-    .prepare(`SELECT id, user_id, expires_at FROM sessions WHERE id = ?1 AND expires_at > ?2`)
-    .bind(id, Date.now())
-    .first<{ id: string; user_id: string; expires_at: number }>()
-  if (!row) return null
-  return { id: row.id, userId: row.user_id, expiresAt: row.expires_at }
 }
 
 export async function renewSession(db: D1Database, sessionId: string): Promise<void> {

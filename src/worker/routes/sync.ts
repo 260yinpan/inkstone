@@ -16,9 +16,14 @@ export const CHANGE_BOUNDS_SQL = `SELECT
 const FOLDER_SELECT = `f.id, f.parent_id, f.name, f.icon, f.position, f.created_at, f.updated_at`
 
 const TAG_SELECT = `t.id, t.name, t.color, t.created_at,
-  (SELECT COUNT(*) FROM note_tags nt JOIN notes n ON n.id = nt.note_id
-     WHERE nt.tag_id = t.id AND n.user_id = t.user_id
-       AND n.deleted_at IS NULL AND n.is_archived = 0) AS note_count`
+  COALESCE(nc.count, 0) AS note_count`
+
+const TAG_COUNT_JOIN = `LEFT JOIN (
+  SELECT nt.tag_id, COUNT(*) AS count
+    FROM note_tags nt JOIN notes n ON n.id = nt.note_id
+   WHERE n.user_id = ?1 AND n.deleted_at IS NULL AND n.is_archived = 0
+   GROUP BY nt.tag_id
+) nc ON nc.tag_id = t.id`
 
 
 syncRoutes.get('/', requireAuth, async (c) => {
@@ -139,7 +144,8 @@ syncRoutes.get('/', requireAuth, async (c) => {
     ? (
         await c.env.DB.prepare(
           `SELECT ${TAG_SELECT} FROM tags t
-            WHERE t.user_id = ?1 ORDER BY t.name COLLATE NOCASE`,
+            ${TAG_COUNT_JOIN}
+           WHERE t.user_id = ?1 ORDER BY t.name COLLATE NOCASE`,
         )
           .bind(userId)
           .all<TagRow>()
@@ -147,7 +153,8 @@ syncRoutes.get('/', requireAuth, async (c) => {
     : await loadInChunks(tagIds, (ids) =>
         c.env.DB.prepare(
           `SELECT ${TAG_SELECT} FROM tags t
-            WHERE t.user_id = ?1 AND t.id IN (${placeholders(ids.length, 2)})`,
+            ${TAG_COUNT_JOIN}
+           WHERE t.user_id = ?1 AND t.id IN (${placeholders(ids.length, 2)})`,
         )
           .bind(userId, ...ids)
           .all<TagRow>(),
@@ -226,7 +233,9 @@ async function fullSnapshot(
     !after
       ? db
           .prepare(
-            `SELECT ${TAG_SELECT} FROM tags t WHERE t.user_id = ?1 ORDER BY t.name COLLATE NOCASE`,
+            `SELECT ${TAG_SELECT} FROM tags t
+              ${TAG_COUNT_JOIN}
+             WHERE t.user_id = ?1 ORDER BY t.name COLLATE NOCASE`,
           )
           .bind(userId)
           .all<TagRow>()

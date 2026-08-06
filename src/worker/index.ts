@@ -2,6 +2,7 @@ import { runAttachmentCleanup } from './attachments/cleanup'
 import { runScheduledBackups } from './backup/scheduler'
 import type { Env } from './env'
 import { initializeDatabase } from './db/schema'
+import { drainAllFtsQueues } from './db/fts'
 import { drainAiIndexQueue } from './mcp/ai-search'
 import { createOAuthProvider, providerForScheduled } from './mcp/oauth'
 import { purgeExpiredMcpOperations } from './mcp/operations'
@@ -35,6 +36,7 @@ export default {
         purgeExpiredMcpOperations(env.DB),
         providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
         drainAiIndexQueue(env, 300),
+        drainAllFtsQueues(env.DB),
       ])
     })())
   },

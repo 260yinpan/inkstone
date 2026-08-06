@@ -10,6 +10,7 @@ import { switchThemeWithTransition, useUi } from '../../store/ui';
 import { useSession } from '../../store/session';
 import { useUpdate } from '../../store/update';
 import { useFolderTree, useNavigationCounts, useNotes, type FolderNode } from '../../store/notes';
+import { TagManager } from '../tags/TagManager';
 import { t } from "../../lib/i18n";
 export function Sidebar({ collapsed = false, onCollapse, }: {
     collapsed?: boolean;
@@ -18,9 +19,9 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
     const view = useUi((s) => s.view);
     const openView = useUi((s) => s.openView);
     const counts = useNavigationCounts();
-    if (collapsed)
-        return <SidebarRail onExpand={onCollapse}/>;
-    return (<aside className="flex h-full min-h-0 flex-col bg-[var(--bg-sunken)]">
+    const [tagManagerOpen, setTagManagerOpen] = useState(false);
+    return (<>
+        {collapsed ? <SidebarRail onExpand={onCollapse}/> : (<aside className="flex h-full min-h-0 flex-col bg-[var(--bg-sunken)]">
       <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-3">
         <div className="flex min-w-0 items-center gap-[9px] select-none">
           <Logo size={24}/>
@@ -44,7 +45,7 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
         </div>
 
         <FolderSection />
-        <TagSection />
+        <TagSection onManageTags={() => setTagManagerOpen(true)}/>
       </div>
 
       <div className="shrink-0 space-y-px border-t border-[var(--border-subtle)] px-2 py-2">
@@ -55,7 +56,9 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
       <div className="shrink-0 border-t border-[var(--border-subtle)] p-2">
         <SidebarAccount />
       </div>
-    </aside>);
+        </aside>)}
+      <TagManager open={tagManagerOpen} onClose={() => setTagManagerOpen(false)}/>
+    </>);
 }
 function SidebarRail({ onExpand }: {
     onExpand?: () => void;
@@ -521,7 +524,9 @@ function FolderRow({ node, siblings, index, parentNode, parentSiblings, onCreate
       {menu.point && (<Menu anchor={menu.point} open onClose={menu.close} items={menuItems}/>)}
     </div>);
 }
-function TagSection() {
+function TagSection({ onManageTags }: {
+    onManageTags: () => void;
+}) {
     const tags = useNotes((s) => s.tags);
     const view = useUi((s) => s.view);
     const activeTag = useUi((s) => s.tag);
@@ -533,8 +538,15 @@ function TagSection() {
     const visible = expanded ? usedTags : usedTags.slice(0, 8);
     if (!usedTags.length)
         return null;
-    return (<section className="mt-4">
-      <SectionLabel>{t("navigation.tag")}</SectionLabel>
+    return (<section className="group mt-4">
+      <div className="flex items-center justify-between pr-0.5">
+        <SectionLabel>{t("navigation.tag")}</SectionLabel>
+        <Tooltip label={t("tags.manage")} side="right">
+          <IconButton label={t("tags.manage")} size="sm" onClick={onManageTags} className="opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100">
+            <Settings size={13}/>
+          </IconButton>
+        </Tooltip>
+      </div>
       <div className="mt-0.5 space-y-px">
         {visible.map((tag) => {
             const active = view === 'tag' && activeTag === tag.name;

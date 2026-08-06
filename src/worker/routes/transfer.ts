@@ -410,7 +410,7 @@ async function importBundle(
       const importedUpdatedAt = validTimestamp(note.updatedAt)
       const importedDeletedAt = validTimestamp(note.deletedAt)
       const effectiveUpdatedAt = Math.max(
-        importedUpdatedAt || importedCreatedAt || Date.now(),
+        importedUpdatedAt || importedCreatedAt,
         importedDeletedAt,
       )
       const existing = sourceId

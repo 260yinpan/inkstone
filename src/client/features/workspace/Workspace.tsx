@@ -15,6 +15,7 @@ import { Segmented } from '../../components/form';
 import { EditorSkeleton, Empty } from '../../components/feedback';
 import { CodeEditor } from '../../editor/CodeEditor';
 import { insertFiles } from '../../editor/paste';
+import { optimizeImageFile } from '../../lib/image';
 import { Preview } from '../preview/Preview';
 import { Outline } from '../preview/Outline';
 import { SplitResizer } from '../shell/Resizer';
@@ -116,7 +117,8 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
     const handlers = useMemo(() => ({
         uploadFile: async (file: File) => {
             try {
-                const uploaded = await api.files.upload(file, note?.id);
+                const optimized = await optimizeImageFile(file);
+                const uploaded = await api.files.upload(optimized, note?.id);
                 return {
                     url: uploaded.url,
                     filename: uploaded.filename,

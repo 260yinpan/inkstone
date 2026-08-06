@@ -21,6 +21,18 @@ export function pasteExtension(handlers: PasteHandlers) {
                 return false;
 
             const files = [...clipboard.files];
+            if (!files.length) {
+                const types = clipboard.types ? Array.from(clipboard.types) : [];
+                const hasRichText = types.includes('text/html') || types.includes('text/plain');
+                if (!hasRichText && clipboard.items) {
+                    for (const item of [...clipboard.items]) {
+                        if (item.kind === 'file' && item.type.startsWith('image/')) {
+                            const file = item.getAsFile();
+                            if (file) files.push(file);
+                        }
+                    }
+                }
+            }
             if (files.length) {
                 event.preventDefault();
                 void insertFiles(view, files, handlers);

@@ -592,6 +592,8 @@ export const EN_US_MESSAGES = {
     "settings.mcp_copied": "Copied",
     "settings.mcp_copy": "Copy",
     "settings.mcp_disabled": "Disabled",
+    "settings.mcp_demo_desc": "This page mirrors a configured Inkstone server so you can inspect every MCP option. The endpoint, credentials, clients, and index statistics are examples; all MCP actions are disabled in the demo.",
+    "settings.mcp_demo_title": "Display-only MCP preview",
     "settings.mcp_enable": "Enable MCP",
     "settings.mcp_enable_desc": "Controls the remote MCP service for every account. Existing grants stop working while it is disabled.",
     "settings.mcp_endpoint": "Remote MCP endpoint",

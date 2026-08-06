@@ -18,6 +18,7 @@ import { Tooltip, confirm } from '../../components/overlay'
 import { Badge, Button, IconButton } from '../../components/primitives'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
+import { IS_DEMO_MODE } from '../../lib/runtime'
 import { fullTime, relativeTime } from '../../lib/time'
 import { useUi } from '../../store/ui'
 
@@ -34,6 +35,7 @@ type BusyAction =
   | null
 
 export function McpSettings() {
+  const displayOnly = IS_DEMO_MODE
   const toast = useUi((state) => state.toast)
   const [info, setInfo] = useState<McpSettingsInfo | null>(null)
   const [loading, setLoading] = useState(true)
@@ -304,6 +306,17 @@ export function McpSettings() {
 
   return (
     <div className="space-y-6">
+      {displayOnly && (
+        <section className="rounded-[var(--r-lg)] border border-[var(--accent)]/25 bg-[var(--accent-soft)] p-3.5">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0 text-[var(--accent)]" />
+            <div>
+              <h3 className="text-[12.5px] font-medium text-[var(--text-primary)]">{t('settings.mcp_demo_title')}</h3>
+              <p className="mt-1 text-[11px] leading-relaxed text-[var(--text-tertiary)]">{t('settings.mcp_demo_desc')}</p>
+            </div>
+          </div>
+        </section>
+      )}
       <section className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)]">
         <div className="flex items-start gap-3 p-4">
           <span className="mt-0.5 rounded-[var(--r-md)] bg-[var(--accent-soft)] p-2 text-[var(--accent)]">
@@ -328,7 +341,7 @@ export function McpSettings() {
               {info.endpoint}
             </code>
             <Tooltip label={t('settings.mcp_copy')} side="left">
-              <IconButton label={t('settings.mcp_copy')} size="sm" onClick={() => void copy('endpoint', info.endpoint)}>
+              <IconButton label={t('settings.mcp_copy')} size="sm" disabled={displayOnly} onClick={() => void copy('endpoint', info.endpoint)}>
                 {copied === 'endpoint' ? <Check size={14} /> : <Copy size={14} />}
               </IconButton>
             </Tooltip>
@@ -347,7 +360,7 @@ export function McpSettings() {
           <SettingRow title={t('settings.mcp_enable')} description={t('settings.mcp_enable_desc')}>
             <Switch
               checked={info.enabled}
-              disabled={Boolean(busy)}
+              disabled={displayOnly || Boolean(busy)}
               label={t('settings.mcp_enable')}
               onChange={(enabled) => void savePreference('global', { enabled })}
             />
@@ -356,7 +369,7 @@ export function McpSettings() {
         <SettingRow title={t('settings.mcp_write_access')} description={t('settings.mcp_write_access_desc')}>
           <Switch
             checked={preferences.writeEnabled}
-            disabled={!info.enabled || Boolean(busy)}
+            disabled={displayOnly || !info.enabled || Boolean(busy)}
             label={t('settings.mcp_write_access')}
             onChange={(writeEnabled) => void savePreference('write', { writeEnabled })}
           />
@@ -364,7 +377,7 @@ export function McpSettings() {
         <SettingRow title={t('settings.mcp_trash_access')} description={t('settings.mcp_trash_access_desc')}>
           <Switch
             checked={preferences.trashEnabled}
-            disabled={!info.enabled || Boolean(busy)}
+            disabled={displayOnly || !info.enabled || Boolean(busy)}
             label={t('settings.mcp_trash_access')}
             onChange={(trashEnabled) => void savePreference('trash', { trashEnabled })}
           />
@@ -402,13 +415,14 @@ export function McpSettings() {
         <div className="mb-2 flex items-center gap-2">
           <Input
             value={keyName}
+            disabled={displayOnly}
             onChange={(e) => setKeyName(e.target.value)}
             maxLength={80}
             placeholder={t('settings.mcp_api_key_name_placeholder')}
             onKeyDown={(e) => { if (e.key === 'Enter') void createKey() }}
           />
           <Button variant="secondary" icon={<KeyRound size={13} />} loading={busy === 'keyCreate'}
-            disabled={Boolean(busy) || !info.enabled} onClick={() => void createKey()}>
+            disabled={displayOnly || Boolean(busy) || !info.enabled} onClick={() => void createKey()}>
             {t('settings.mcp_api_key_create')}
           </Button>
         </div>
@@ -435,7 +449,7 @@ export function McpSettings() {
                   <IconButton
                     label={t('settings.mcp_api_key_revoke')}
                     size="sm"
-                    disabled={Boolean(busy)}
+                    disabled={displayOnly || Boolean(busy)}
                     onClick={() => void revokeKey(key.id, key.name)}
                   >
                     <Trash2 size={14} />
@@ -468,7 +482,7 @@ export function McpSettings() {
           </div>
           <Switch
             checked={aiSearch.enabled}
-            disabled={!info.enabled || !aiSearch.available || Boolean(busy)}
+            disabled={displayOnly || !info.enabled || !aiSearch.available || Boolean(busy)}
             label={t('settings.mcp_ai_search')}
             onChange={(enabled) => void toggleAiSearch(enabled)}
           />
@@ -490,11 +504,11 @@ export function McpSettings() {
           )}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button size="sm" variant="secondary" icon={<RefreshCw size={12} />} loading={busy === 'aiReindex'}
-              disabled={!aiSearch.enabled || Boolean(busy)} onClick={() => void reindexAi()}>
+              disabled={displayOnly || !aiSearch.enabled || Boolean(busy)} onClick={() => void reindexAi()}>
               {t('settings.mcp_ai_search_reindex')}
             </Button>
             <Button size="sm" variant="ghost" icon={<Trash2 size={12} />} loading={busy === 'aiClear'}
-              disabled={Boolean(busy)} onClick={() => void clearAi()}>
+              disabled={displayOnly || Boolean(busy)} onClick={() => void clearAi()}>
               {t('settings.mcp_ai_search_clear')}
             </Button>
           </div>
@@ -519,7 +533,7 @@ export function McpSettings() {
                 <div className="flex items-start gap-2">
                   <pre className="min-w-0 flex-1 overflow-x-auto whitespace-pre-wrap break-all rounded-[var(--r-sm)] bg-[var(--bg-inset)] p-2.5 text-[10.5px] leading-relaxed text-[var(--text-secondary)]">{snippet.value}</pre>
                   <Tooltip label={t('settings.mcp_copy')} side="left">
-                    <IconButton label={t('settings.mcp_copy')} size="sm" onClick={() => void copy(snippet.id, snippet.value)}>
+                    <IconButton label={t('settings.mcp_copy')} size="sm" disabled={displayOnly} onClick={() => void copy(snippet.id, snippet.value)}>
                       {copied === snippet.id ? <Check size={14} /> : <Copy size={14} />}
                     </IconButton>
                   </Tooltip>
@@ -536,7 +550,7 @@ export function McpSettings() {
             {t('settings.mcp_connected_clients')}
           </h3>
           {info.grants.length > 1 && (
-            <Button size="sm" variant="ghost" disabled={Boolean(busy)} onClick={() => void revokeAll()}>
+            <Button size="sm" variant="ghost" disabled={displayOnly || Boolean(busy)} onClick={() => void revokeAll()}>
               {t('settings.mcp_revoke_all')}
             </Button>
           )}
@@ -558,7 +572,7 @@ export function McpSettings() {
                   <IconButton
                     label={t('settings.mcp_revoke')}
                     size="sm"
-                    disabled={Boolean(busy)}
+                    disabled={displayOnly || Boolean(busy)}
                     onClick={() => void revoke(grant)}
                   >
                     <Unplug size={14} />

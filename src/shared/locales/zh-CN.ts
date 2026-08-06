@@ -593,6 +593,8 @@ export const ZH_CN_MESSAGES = {
     "settings.mcp_copied": "已复制",
     "settings.mcp_copy": "复制",
     "settings.mcp_disabled": "已停用",
+    "settings.mcp_demo_desc": "这里按已配置的 Inkstone 服务器完整展示全部 MCP 选项。端点、凭据、客户端和索引统计均为示例；Demo 中所有 MCP 操作都已禁用。",
+    "settings.mcp_demo_title": "仅展示的 MCP 预览",
     "settings.mcp_enable": "启用 MCP",
     "settings.mcp_enable_desc": "控制所有账号的远程 MCP 服务；停用期间，已有授权也无法继续访问。",
     "settings.mcp_endpoint": "远程 MCP 端点",

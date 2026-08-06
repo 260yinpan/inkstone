@@ -16,6 +16,7 @@ import type {
   ExportBundle,
   Folder,
   ImportResult,
+  McpSettingsInfo,
   Note,
   NoteVersion,
   PublicNote,
@@ -118,6 +119,10 @@ export function createDemoBackend(): DemoBackend {
     state.registrationOpen = body.enabled === true
     return c.json({ ok: true as const, registrationOpen: state.registrationOpen })
   })
+
+  app.get('/api/mcp', (c) => c.json(demoMcpSettings()))
+  app.all('/api/mcp', () => apiError(403, 'forbidden', 'MCP is display-only in the demo'))
+  app.all('/api/mcp/*', () => apiError(403, 'forbidden', 'MCP is display-only in the demo'))
 
   app.get('/api/notes', (c) => {
     const query = c.req.query()
@@ -737,6 +742,49 @@ export function createDemoBackend(): DemoBackend {
   app.all('/api/*', () => apiError(404, 'not_found', 'Demo endpoint not found'))
 
   return { fetch: (request) => Promise.resolve(app.fetch(request)) }
+}
+
+function demoMcpSettings(now = Date.now()): McpSettingsInfo {
+  return {
+    enabled: true,
+    canManageGlobal: true,
+    endpoint: 'https://your-inkstone.example/mcp',
+    oauth: true,
+    preferences: {
+      writeEnabled: true,
+      trashEnabled: false,
+      updatedAt: now - 24 * 60 * 60 * 1000,
+    },
+    apiKeys: [{
+      id: 'demo-api-key',
+      name: 'Automation key',
+      scopes: ['notes:read', 'notes:write'],
+      createdAt: now - 14 * 24 * 60 * 60 * 1000,
+      lastUsedAt: now - 18 * 60 * 1000,
+    }],
+    aiSearch: {
+      available: true,
+      enabled: true,
+      model: '@cf/baai/bge-m3',
+      indexedCount: 24,
+      pendingCount: 2,
+      reason: null,
+    },
+    grants: [{
+      id: 'demo-grant',
+      clientId: 'demo-desktop-client',
+      clientName: 'Desktop MCP client',
+      clientUri: 'https://example.com',
+      scopes: ['notes:read', 'notes:write'],
+      createdAt: now - 7 * 24 * 60 * 60 * 1000,
+      expiresAt: null,
+    }],
+    privacy: {
+      publicEndpoint: false,
+      perUserIndex: true,
+      externalClientReceivesSelectedContent: true,
+    },
+  }
 }
 
 function siteInfo(state: DemoState) {

@@ -1,7 +1,14 @@
-import { clear as clearStore, createStore, del, delMany, entries, get, getMany, set, setMany, update } from 'idb-keyval'
+import { clear as clearStore, createStore, del, get, getMany, set, setMany, update } from 'idb-keyval'
+import * as idbKeyval from 'idb-keyval'
+import type { UseStore } from 'idb-keyval'
 import type { Folder, Note, NoteSummary, PublicUser, SessionInfo, SiteInfo, Tag } from '@shared/types'
 import { CLIENT_DATABASE_NAME } from './runtime'
 
+const optionalIdbExport = (name: string): unknown => Object.prototype.hasOwnProperty.call(idbKeyval, name)
+  ? Reflect.get(idbKeyval, name)
+  : undefined
+const delMany = optionalIdbExport('delMany') as ((keys: IDBValidKey[], store?: UseStore) => Promise<void>) | undefined
+const entries = optionalIdbExport('entries') as (<KeyType extends IDBValidKey, ValueType = unknown>(store?: UseStore) => Promise<[KeyType, ValueType][]>) | undefined
 
 const store = createStore(CLIENT_DATABASE_NAME, 'kv')
 
@@ -28,6 +35,7 @@ let shellSaveTimer = 0
 let pendingShell: ShellData | null = null
 let pendingShellUserId: string | null = null
 let activeUserId: string | null = null
+const supportsUserNamespaces = typeof entries === 'function' && typeof delMany === 'function'
 
 export interface OutboxItem {
   id: string
@@ -85,7 +93,7 @@ async function safeSet(key: string, value: unknown): Promise<void> {
 }
 
 function userScopedKey(key: string, userId = activeUserId): string {
-  return userId ? `user:${userId}:${key}` : key
+  return userId && supportsUserNamespaces ? `user:${userId}:${key}` : key
 }
 
 function isLegacyDataKey(key: unknown): key is string {
@@ -94,6 +102,7 @@ function isLegacyDataKey(key: unknown): key is string {
 }
 
 async function migrateLegacyData(userId: string): Promise<void> {
+  if (!supportsUserNamespaces) return
   const legacy = (await entries<string, unknown>(store)).filter(([key]) => isLegacyDataKey(key))
   if (!legacy.length) return
   const scopedKeys = await getMany(legacy.map(([key]) => userScopedKey(key, userId)), store)
@@ -109,6 +118,12 @@ async function migrateLegacyData(userId: string): Promise<void> {
 
 async function bindLocalUser(userId: string): Promise<void> {
   if (activeUserId === userId) {
+    await set(KEY.userId, userId, store)
+    return
+  }
+  if (!supportsUserNamespaces) {
+    await clearLocalData()
+    activeUserId = userId
     await set(KEY.userId, userId, store)
     return
   }

@@ -386,7 +386,7 @@ const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
   tokenize = "unicode61 remove_diacritics 2"
 )`
 
-const DATABASE_STATE_KEY = 'database-state-v2'
+const DATABASE_STATE_KEY = 'database-state-v1'
 
 const TABLE_SCHEMA_STATEMENTS = SCHEMA_STATEMENTS.filter((statement) =>
   /^\s*CREATE TABLE IF NOT EXISTS/.test(statement),

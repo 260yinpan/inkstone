@@ -877,6 +877,7 @@ export const ZH_CN_MESSAGES = {
     "workspace.export_failed": "导出失败",
     "workspace.export_html": "导出 HTML",
     "workspace.export_markdown": "导出 Markdown",
+    "workspace.export_pdf": "导出 PDF",
     "workspace.footnote": "脚注",
     "workspace.heading_value0": "{value0} 级标题",
     "workspace.inline_math": "行内公式",

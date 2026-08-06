@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { ArrowLeft, Columns2, Download, Eye, FileCode, FileText, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Pencil, Plus, Share2, Star, } from 'lucide-react';
+import { ArrowLeft, Columns2, Download, Eye, FileCode, FileDown, FileText, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Pencil, Plus, Share2, Star, } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { api } from '../../lib/api';
 import { readingMinutes } from '@shared/markdown-utils';
@@ -16,7 +16,7 @@ import { EditorSkeleton, Empty } from '../../components/feedback';
 import { CodeEditor } from '../../editor/CodeEditor';
 import { insertFiles } from '../../editor/paste';
 import { optimizeImageFile } from '../../lib/image';
-import { exportNoteAsHtml, exportNoteAsMarkdown } from '../../lib/export-note';
+import { exportNoteAsHtml, exportNoteAsMarkdown, exportNoteAsPdf } from '../../lib/export-note';
 import { Preview } from '../preview/Preview';
 import { Outline } from '../preview/Outline';
 import { SplitResizer } from '../shell/Resizer';
@@ -186,16 +186,20 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
         <EditorSkeleton />
       </div>);
     }
-    const exportNote = async (format: 'md' | 'html') => {
+    const exportNote = async (format: 'md' | 'html' | 'pdf') => {
         setExportMenuOpen(false);
         if (!note)
             return;
+        const payload = { title: note.title, content };
         if (format === 'md') {
-            exportNoteAsMarkdown({ title: note.title, content });
+            exportNoteAsMarkdown(payload);
             return;
         }
         try {
-            await exportNoteAsHtml({ title: note.title, content }, locale);
+            if (format === 'html')
+                await exportNoteAsHtml(payload, locale);
+            else
+                await exportNoteAsPdf(payload, locale);
         }
         catch (err) {
             toast({
@@ -208,6 +212,7 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
     const exportMenuItems: MenuItem[] = [
         { id: 'md', label: t("workspace.export_markdown"), icon: <FileText size={13}/>, onSelect: () => void exportNote('md') },
         { id: 'html', label: t("workspace.export_html"), icon: <FileCode size={13}/>, onSelect: () => void exportNote('html') },
+        { id: 'pdf', label: t("workspace.export_pdf"), icon: <FileDown size={13}/>, onSelect: () => void exportNote('pdf') },
     ];
     const mobileItems: MenuItem[] = [
         {
@@ -233,6 +238,12 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
             label: t("workspace.export_html"),
             icon: <FileCode size={13}/>,
             onSelect: () => void exportNote('html'),
+        },
+        {
+            id: 'export-pdf',
+            label: t("workspace.export_pdf"),
+            icon: <FileDown size={13}/>,
+            onSelect: () => void exportNote('pdf'),
         },
     ];
     return (<div className="flex h-full min-h-0 flex-col bg-[var(--bg-editor)]">

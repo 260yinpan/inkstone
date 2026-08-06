@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDownWideNarrow, CheckSquare2, Copy, FolderInput, MoreHorizontal, Pin, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, } from 'lucide-react';
+import { Archive, ArrowDownWideNarrow, CheckSquare2, Copy, FileCode, FileDown, FileText, FolderInput, MoreHorizontal, Pin, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, } from 'lucide-react';
 import type { NoteSummary, SortKey, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { shortTime, groupLabel } from '../../lib/time';
@@ -7,6 +7,7 @@ import { useNow } from '../../lib/hooks';
 import { fuzzyFilter, splitByRanges } from '../../lib/fuzzy';
 import { useBreakpoint } from '../../lib/hooks';
 import { prettyCombo } from '../../lib/hotkeys';
+import { exportNoteAsHtml, exportNoteAsMarkdown, exportNoteAsPdf } from '../../lib/export-note';
 import { IconButton } from '../../components/primitives';
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
 import { Empty, NoteListSkeleton } from '../../components/feedback';
@@ -203,6 +204,8 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, now, onRangeSe
     onRangeSelect: (noteId: string) => void;
 }) {
     const breakpoint = useBreakpoint();
+    const locale = useLocale();
+    const toast = useUi((s) => s.toast);
     const active = useUi((s) => s.activeNoteId === note.id);
     const selectedIds = useUi((s) => s.selectedIds);
     const selected = selectedIds.includes(note.id);
@@ -239,6 +242,36 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, now, onRangeSe
         finally {
             purgeRef.current = false;
             setPurging(false);
+        }
+    };
+    const exportNote = async (format: 'md' | 'html' | 'pdf') => {
+        const state = useNotes.getState();
+        let content = state.contents[note.id];
+        if (content === undefined) {
+            await state.openNote(note.id);
+            content = useNotes.getState().contents[note.id];
+            if (content === undefined) {
+                toast({ title: t("common.export_failed"), tone: 'danger' });
+                return;
+            }
+        }
+        const payload = { title: note.title, content };
+        if (format === 'md') {
+            exportNoteAsMarkdown(payload);
+            return;
+        }
+        try {
+            if (format === 'html')
+                await exportNoteAsHtml(payload, locale);
+            else
+                await exportNoteAsPdf(payload, locale);
+        }
+        catch (err) {
+            toast({
+                title: t("common.export_failed"),
+                description: err instanceof Error ? err.message : String(err),
+                tone: 'danger',
+            });
         }
     };
     const items: MenuItem[] = inTrash
@@ -279,6 +312,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, now, onRangeSe
             {
                 id: 'archive',
                 label: note.isArchived ? t("common.unarchive") : t("navigation.archive"),
+                icon: <Archive size={13}/>,
                 onSelect: () => void patchNote(note.id, { isArchived: !note.isArchived }),
             },
             ...folders.slice(0, 6).map<MenuItem>((folder, index) => ({
@@ -289,6 +323,9 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, now, onRangeSe
                 disabled: folder.id === note.folderId,
                 onSelect: () => void patchNote(note.id, { folderId: folder.id }),
             })),
+            { id: 'export-md', label: t("workspace.export_markdown"), icon: <FileText size={13}/>, separatorBefore: true, onSelect: () => void exportNote('md') },
+            { id: 'export-html', label: t("workspace.export_html"), icon: <FileCode size={13}/>, onSelect: () => void exportNote('html') },
+            { id: 'export-pdf', label: t("workspace.export_pdf"), icon: <FileDown size={13}/>, onSelect: () => void exportNote('pdf') },
             {
                 id: 'delete',
                 label: t("common.move_to_trash"),

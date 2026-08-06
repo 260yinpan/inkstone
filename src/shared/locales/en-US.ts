@@ -876,6 +876,7 @@ export const EN_US_MESSAGES = {
     "workspace.export_failed": "Export failed",
     "workspace.export_html": "Export as HTML",
     "workspace.export_markdown": "Export as Markdown",
+    "workspace.export_pdf": "Export as PDF",
     "workspace.footnote": "Footnote",
     "workspace.heading_value0": "Heading {value0}",
     "workspace.inline_math": "Inline math",

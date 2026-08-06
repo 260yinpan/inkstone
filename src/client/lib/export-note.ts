@@ -26,6 +26,48 @@ export async function exportNoteAsHtml(note: { title: string; content: string },
   downloadTextFile(`${safeFileName(note.title) || 'note'}.html`, htmlDocument(note.title, body, language), 'text/html;charset=utf-8')
 }
 
+export async function exportNoteAsPdf(note: { title: string; content: string }, language: string): Promise<void> {
+  const rendered = renderMarkdown(note.content)
+  const body = await inlinePrivateImages(rendered.html)
+  const html = htmlDocument(note.title, body, language)
+  await printHtml(html)
+}
+
+async function printHtml(html: string): Promise<void> {
+  const iframe = document.createElement('iframe')
+  iframe.setAttribute('aria-hidden', 'true')
+  iframe.style.position = 'fixed'
+  iframe.style.right = '0'
+  iframe.style.bottom = '0'
+  iframe.style.width = '0'
+  iframe.style.height = '0'
+  iframe.style.border = '0'
+  document.body.appendChild(iframe)
+  try {
+    const win = iframe.contentWindow
+    if (!win) return
+    iframe.srcdoc = html
+    await waitForPrintReady(iframe)
+    win.focus()
+    win.print()
+  } finally {
+    setTimeout(() => iframe.remove(), 1000)
+  }
+}
+
+async function waitForPrintReady(iframe: HTMLIFrameElement): Promise<void> {
+  await new Promise<void>((resolve) => {
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+    iframe.addEventListener('load', finish)
+    setTimeout(finish, 2000)
+  })
+}
+
 async function inlinePrivateImages(html: string): Promise<string> {
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const images = [...doc.querySelectorAll<HTMLImageElement>('img[src^="/api/files/"]')]

@@ -17,7 +17,7 @@
 
 ## About
 
-Inkstone is a browser-based notebook that runs on Cloudflare Workers. Notes always remain plain Markdown text; on top of that foundation, the application provides focused writing, live preview, full-text search, bidirectional links, offline editing, multi-device synchronization, public sharing, and off-site backups.
+Inkstone is a browser-based notebook that runs on Cloudflare Workers. Notes always remain plain Markdown text; on top of that foundation, the application provides focused writing, live preview, lexical and optional semantic search, bidirectional links, offline editing, multi-device synchronization, private AI access, public sharing, and off-site backups.
 
 It is a complete self-hosted application. The deployer retains control of the database, attachments, and runtime environment.
 
@@ -27,23 +27,24 @@ Every new account automatically receives two standard starter notes, one in Chin
 
 | Area | Included |
 | --- | --- |
-| Writing | CodeMirror 6 editor, **live preview**, editor/split/preview layouts, synchronized scrolling, outline, **focus mode**, **typewriter mode**, **autosave**, and **version history** |
+| Writing | CodeMirror 6 editor, independently editable note titles, **live preview**, editor/split/preview layouts, synchronized scrolling, outline, **focus mode**, **typewriter mode**, **autosave**, and **version history** |
 | Markdown | Tables, task lists, footnotes, definition lists, callouts, tabs, **details blocks**, **math**, **Mermaid diagrams**, **syntax highlighting**, **Front Matter**, and Pandoc-style attributes |
-| Organization | Nested folders, inline tags, favorites, pinning, archive, trash, **wiki links**, backlinks, block references, note embeds, and a relationship graph |
-| Search | D1 FTS5 **full-text search** with Chinese indexing, filters, recent notes, and command-palette navigation |
-| **MCP** | Private remote MCP, OAuth 2.1 authorization, standard `search`/`fetch`, bounded reads, safe writes, and grant management |
-| Reliability | Installable PWA, offline app launch, browser-side cache, **offline write queue, optimistic concurrency control**, conflict copies, realtime notifications, and polling fallback |
+| Organization | Nested folders with drag-and-drop ordering, inline tags, favorites, pinning, archive, trash, **wiki links**, backlinks, block references, note embeds, and a relationship graph |
+| Search | D1 FTS5 **full-text search** with Chinese indexing, filters, recent notes, command-palette navigation, and optional private **semantic/hybrid search** powered by Workers AI |
+| **MCP** | Private remote MCP, OAuth 2.1 with PKCE, revocable `ink_...` API keys, standard `search`/`fetch`, bounded reads, revision-safe writes, separate trash permission, and per-account grant management |
+| Reliability | Installable PWA, offline app launch, browser-side cache, **offline write queue and optimistic concurrency control**, immediate local mutations with rollback, stale-sync protection, conflict copies, realtime notifications, and elected-tab polling fallback |
 | Sharing | Public note links with optional access passwords and expiration dates |
 | Portability | JSON and ZIP exports, directly readable **Markdown**, attachment export, and **manual or scheduled WebDAV/S3 backups** |
-| Interface | **Desktop and mobile layouts**, **dark/light themes**, accent colors, Simplified Chinese, and English |
+| Interface | **Desktop and mobile layouts**, **dark/light themes**, accent colors, Simplified Chinese, English, and owner-only update notifications |
 
 ## Data storage
 
 | Component | Purpose |
 | --- | --- |
-| Cloudflare D1 | Accounts, notes, folders, tags, settings, versions, shares, and search indexes |
+| Cloudflare D1 | Accounts, notes, folders, tags, settings, versions, shares, lexical indexes, per-account AI embeddings, and background indexing queues |
 | Cloudflare R2 or Workers KV | Attachment and uploaded-avatar binaries through the `FILES` or `FILES_KV` binding |
 | Workers KV `OAUTH_KV` | OAuth client registrations, authorization codes, access and refresh tokens, and grants; note bodies are not stored here |
+| Workers AI `AI` binding | Optional embedding generation for semantic search; unavailable deployments continue to use lexical search |
 | Browser IndexedDB | Local cache and pending offline writes |
 | `SyncHub` Durable Object | Realtime change notifications between active clients |
 | `CredentialVault` Durable Object | Isolated storage for the key used to encrypt backup credentials |
@@ -57,6 +58,8 @@ Every new account automatically receives two standard starter notes, one in Chin
 4. For R2 mode, set the build command to `npm run build` and the deploy command to `npm run deploy`.
    - To use KV mode, change the deploy command to `npm run deploy:kv`.
 5. After deployment completes, open the generated Workers URL.
+
+Existing databases are upgraded automatically through versioned, idempotent migrations. Keep a current backup before updating any self-hosted deployment. When a newer stable Inkstone release is available, the owner receives a focused reminder without interrupting regular members.
 
 ## Exports and backups
 
@@ -103,4 +106,3 @@ Read [`SECURITY.md`](./SECURITY.md) before reporting a vulnerability. Developmen
 ## License
 
 Inkstone is distributed under the [GNU Lesser General Public License v3.0 only](./LICENSE), using the SPDX identifier `LGPL-3.0-only`.
-

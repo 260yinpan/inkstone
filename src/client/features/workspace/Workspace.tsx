@@ -155,6 +155,12 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
             return;
         editContent(note.id, next);
     }, [note, editContent]);
+    const runEditorCommand = useCallback((command: (target: EditorView) => boolean) => {
+        if (!view)
+            return;
+        command(view);
+        view.focus();
+    }, [view]);
     const invalidateSyncAnchors = useSyncScroll(view, previewScrollerRef, settings.preview.syncScroll && layout === 'split');
     const jumpToHeading = useCallback((heading: Heading) => {
         const scroller = previewScrollerRef.current;
@@ -328,7 +334,7 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
         </div>
       </header>
 
-      {settings.editor.showToolbar && showEditor && (<EditorToolbar view={view} mobile={isMobile} onPickImage={() => fileInputRef.current?.click()}/>)}
+      {settings.editor.showToolbar && showEditor && (<EditorToolbar runCommand={runEditorCommand} mobile={isMobile} onPickImage={() => fileInputRef.current?.click()}/>)}
 
       <div ref={containerRef} className="flex min-h-0 flex-1">
         {showEditor && (<div className="min-w-0" style={{ width: layout === 'split' ? editorWidth : '100%' }}>

@@ -297,7 +297,7 @@ function errorPage(message: string, locale: AppLocale, currentUrl: string): stri
 function authorizationCopy(locale: AppLocale) {
   if (locale === 'zh-CN') {
     return {
-      header: 'AI 与 MCP',
+      header: 'MCP',
       authorization: '授权',
       switchLabel: 'EN',
       switchAria: '切换为英文',
@@ -334,7 +334,7 @@ function authorizationCopy(locale: AppLocale) {
     }
   }
   return {
-    header: 'AI & MCP',
+    header: 'MCP',
     authorization: 'Authorization',
     switchLabel: '中文',
     switchAria: 'Switch to Chinese',

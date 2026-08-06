@@ -553,7 +553,7 @@ export const EN_US_MESSAGES = {
     "settings.look_at_home_together": "look at home together.",
     "settings.maintenance": "Maintenance",
     "settings.manual": "Manual",
-    "settings.mcp": "AI & MCP",
+    "settings.mcp": "MCP",
     "settings.mcp_ai_search": "AI semantic search",
     "settings.mcp_ai_search_clear": "Clear index",
     "settings.mcp_ai_search_clear_desc": "Removes every stored vector for this account and cancels pending indexing. Search falls back to keywords until you rebuild the index.",
@@ -929,8 +929,12 @@ aliases:
 
 # Welcome to Inkstone
 
-> [!TIP] Three things to know first
-> This is your private Markdown notebook. It saves automatically and keeps working offline.
+> [!TIP] Five things to know first
+> - This is your private Markdown notebook; note bodies always remain plain text.
+> - Content saves automatically, remains editable offline, and uploads after reconnection.
+> - Common create, move, organize, and delete actions take effect locally first and roll back safely if persistence fails.
+> - The title at the top of a note is independently editable and does not have to match the first body line.
+> - MCP is entirely optional and requires account authorization before it can read notes.
 
 Use the left side to organize notes, the center to edit plain Markdown, and the right side for live preview. There is no proprietary document format: every \`.md\` file in a backup opens in any text editor.
 
@@ -941,6 +945,10 @@ Use the left side to organize notes, the center to edit plain Markdown, and the 
 - [ ] Select text and press \`Ctrl + B\` to make it bold
 - [ ] Press \`Ctrl + K\` to open the command palette
 - [ ] Add a \`#tag\`, or click [[My first note]] to create a linked note
+- [ ] Click the title above this note and give it a name different from the body
+- [ ] Create a subfolder, then drag it into another folder or sibling position
+- [ ] Install Inkstone as an offline-capable PWA under **Settings → About**
+- [ ] Open **Settings → MCP** to review private AI connections and permissions
 - [ ] Add a backup target under **Settings → Backup**
 - [ ] Create a password-protected share for a note
 
@@ -969,14 +977,29 @@ Use the left side to organize notes, the center to edit plain Markdown, and the 
 
 ::: tabs
 @tab Writing
-Source editing, live preview, synchronized scrolling, focus and typewriter modes, an outline, and version history.
+Independent titles, source editing, live preview, synchronized scrolling, focus and typewriter modes, an outline, and version history.
 
 @tab Organization
-Nested folders, inline \`#tags\`, \`[[wiki links]]\`, backlinks, a graph, and full-text search.
+Twelve levels of drag-sortable folders, inline \`#tags\`, \`[[wiki links]]\`, backlinks, a graph, and full-text search. Deleting a folder promotes its children and moves direct notes to the parent.
+
+@tab Search & AI
+Command-palette navigation, keyword search, and optional Workers AI semantic/hybrid search. Every account has a separate index, with automatic keyword fallback when AI is unavailable.
 
 @tab Safety & backup
-Self-hosting, offline editing, and multi-device sync. Back up to several WebDAV or S3 targets and export readable Markdown plus a complete JSON archive.
+Self-hosting, an installable PWA, offline editing, multi-device sync, and conflict copies. Back up to several WebDAV or S3 targets and export readable Markdown, attachments, and complete structured data.
 :::
+
+## Private MCP (optional)
+
+Under **Settings → MCP**, the owner can enable the remote MCP service and each account can separately decide whether to allow writes or moves to trash:
+
+- Full MCP clients such as Codex and Claude Code authorize through OAuth 2.1 with PKCE. You can revoke one client or every grant at any time.
+- Scripts and minimal clients without OAuth can use an \`ink_...\` API key. A key is shown once, stored only as a hash, and can be revoked at any time.
+- MCP can search, read bounded ranges, inspect outlines/folders/tags/links, and—with explicit permission—safely create, edit, organize, trash, or restore notes. Permanent purge is never exposed.
+- With Workers AI configured, Inkstone builds a per-account semantic index and combines semantic and keyword results. The index can be rebuilt or cleared, and content changes are indexed in the background.
+
+> [!WARNING] Check an external AI client's privacy policy before connecting
+> Inkstone isolates accounts and enforces permissions, but content an authorized client actually reads is then processed by that client.
 
 ## Markdown quick reference
 
@@ -1088,7 +1111,9 @@ console.log(\`Hello, \${name}!\`)
 
 ## Saving, syncing, and recovery
 
-Changes save automatically and sync to your other devices. You can keep editing offline, and syncing resumes when you reconnect.
+Changes save automatically and sync to your other devices. You can keep editing offline, and queued writes replay in order after reconnection. Everyday actions appear locally first and roll back only if background persistence fails; stale sync responses cannot overwrite newer local state.
+
+Install the PWA under **Settings → About**. Application updates wait for confirmation and flush pending note writes before refreshing; only the owner receives deployment-version reminders. Existing databases upgrade through versioned, idempotent migrations, but keep a current backup before updating a self-hosted deployment.
 
 Add several WebDAV/S3 destinations and a schedule under **Settings → Backup**. Import or export \`.md\`, \`.zip\`, and complete JSON archives under **Settings → Data**.
 

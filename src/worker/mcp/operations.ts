@@ -61,17 +61,27 @@ export async function runIdempotent<T>(options: {
     )
   }
 
+  let result: T
   try {
-    const result = await options.execute()
-    await storeResponse(options.db, options.userId, operationId, result)
-    return result
+    result = await options.execute()
   } catch (error) {
+    // The mutation itself failed before committing; remove the pending row
+    // so the client can retry the same operation_id cleanly.
     await options.db.prepare(
       `DELETE FROM mcp_operations
         WHERE user_id = ?1 AND operation_id = ?2 AND response_json = ?3`,
     ).bind(options.userId, operationId, JSON.stringify(pending)).run().catch(() => {})
     throw error
   }
+  try {
+    await storeResponse(options.db, options.userId, operationId, result)
+  } catch (error) {
+    // The mutation already committed. Keep the pending row so a retry goes
+    // through the recovery path instead of re-executing and colliding
+    // (e.g. create_note with the same id).
+    throw error
+  }
+  return result
 }
 
 export async function purgeExpiredMcpOperations(db: D1Database, maxAgeMs = 7 * 24 * 60 * 60 * 1000): Promise<void> {

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type { RealtimeMessage } from '@shared/types'
 import { CLIENT_ID } from './api'
 import { createBroadcast, type BroadcastPayload } from './db'
@@ -29,9 +29,31 @@ export class SyncEngine {
   private broadcast = createBroadcast((payload) => this.onBroadcast(payload))
 
   constructor(
-    private readonly realtimeEnabled: boolean,
-    private readonly pollIntervalMs: number,
+    private realtimeEnabled: boolean,
+    private pollIntervalMs: number,
   ) {}
+
+  /**
+   * Applies live setting changes (realtime toggle, poll interval) without
+   * tearing down the engine, its WebSocket, or its leadership claim.
+   */
+  updateConfig(realtimeEnabled: boolean, pollIntervalMs: number): void {
+    const interval = Math.max(5000, pollIntervalMs)
+    if (interval !== this.pollIntervalMs) {
+      this.pollIntervalMs = interval
+      this.startPolling()
+    }
+    if (realtimeEnabled === this.realtimeEnabled) return
+    this.realtimeEnabled = realtimeEnabled
+    if (realtimeEnabled) {
+      if (this.isLeader) this.connect()
+    } else {
+      window.clearTimeout(this.reconnectTimer)
+      window.clearInterval(this.heartbeatTimer)
+      this.socket?.close()
+      this.socket = null
+    }
+  }
 
   start(): void {
     this.claimLeadership()
@@ -338,24 +360,35 @@ export function useSyncEngine(): void {
   const enabled = useSession((s) => s.settings.sync.realtime)
   const interval = useSession((s) => s.settings.sync.pollIntervalMs)
   const bootstrap = useNotes((s) => s.bootstrap)
+  const realtimeEnabled = realtime && enabled
+  const engineRef = useRef<SyncEngine | null>(null)
 
+  // The engine is created exactly once; later setting changes are pushed
+  // through updateConfig instead of rebuilding the whole engine.
   useEffect(() => {
     let disposed = false
-    let instance: SyncEngine | null = null
-
     void bootstrap()
       .catch(() => {
 
       })
       .then(() => {
         if (disposed) return
-        instance = new SyncEngine(realtime && enabled, Math.max(5000, interval))
-        instance.start()
+        const state = useSession.getState()
+        engineRef.current = new SyncEngine(
+          Boolean(state.site?.realtimeEnabled) && state.settings.sync.realtime,
+          Math.max(5000, state.settings.sync.pollIntervalMs),
+        )
+        engineRef.current.start()
       })
 
     return () => {
       disposed = true
-      instance?.dispose()
+      engineRef.current?.dispose()
+      engineRef.current = null
     }
-  }, [bootstrap, realtime, enabled, interval])
+  }, [bootstrap])
+
+  useEffect(() => {
+    engineRef.current?.updateConfig(realtimeEnabled, interval)
+  }, [realtimeEnabled, interval])
 }

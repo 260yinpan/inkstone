@@ -57,6 +57,10 @@ export function loginThrottleTargets(username: string, ip: string): ThrottleTarg
   return [
     { key: `login:${ip}:${identity}`, freeFails: 5 },
     { key: `login-ip:${ip}`, freeFails: 25 },
+    // Account-wide cap so a distributed botnet cannot retry one account
+    // from many IPs forever; cleared on every successful sign-in, so a
+    // normal user only ever notices it after 30 failed attempts per hour.
+    { key: `login-account:${identity}`, freeFails: 30 },
   ]
 }
 
@@ -254,7 +258,13 @@ authRoutes.post('/login', async (c) => {
     throw new ApiError(401, 'invalid_credentials', "Incorrect username or password")
   }
 
-  await clearLoginFailures(db, [throttleTargets[0]!, workTargets[0]!.key])
+  // A successful sign-in proves this identity and IP are legitimate:
+  // clear every throttling key (identity, IP, and account level) so a
+  // shared IP / NAT is never locked out by a full window of attempts.
+  await clearLoginFailures(db, [
+    ...throttleTargets.map((target) => target.key),
+    ...workTargets.map((target) => target.key),
+  ])
 
   const token = await rotateSession(c, row.id)
   writeSessionCookie(c, token)

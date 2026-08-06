@@ -90,6 +90,10 @@ export function SharePanel({ onClose }: {
     const create = async () => {
         if (busyRef.current || share === undefined || loadError)
             return;
+        if (usePassword && password.length > 0 && password.length < 4) {
+            toast({ title: t("share.passcode_too_short"), tone: 'danger' });
+            return;
+        }
         if (needsNewSharePasscode(usePassword, Boolean(share?.hasPassword), password)) {
             toast({ title: t("share.enter_a_passcode"), tone: 'danger' });
             return;

@@ -98,11 +98,12 @@ async function registerServiceWorker(): Promise<void> {
 function notifyUpdate(worker: ServiceWorker): void {
   if (updateToastShown) return
   updateToastShown = true
+  const durationMs = 30_000
   useUi.getState().toast({
     title: t('pwa.update_ready'),
     description: t('pwa.update_ready_description'),
     tone: 'default',
-    duration: 30_000,
+    duration: durationMs,
     action: {
       label: t('pwa.refresh_now'),
       run: () => {
@@ -110,6 +111,11 @@ function notifyUpdate(worker: ServiceWorker): void {
       },
     },
   })
+  // Reset the flag once the toast is gone, so a later installed worker can
+  // notify again instead of being permanently suppressed.
+  window.setTimeout(() => {
+    updateToastShown = false
+  }, durationMs + 2_000)
 }
 
 async function applyUpdate(worker: ServiceWorker): Promise<void> {

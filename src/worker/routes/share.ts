@@ -81,6 +81,9 @@ shareManageRoutes.post('/:noteId', async (c) => {
   if (typeof body.password === 'string' && body.password.length > 128) {
     throw ApiError.badRequest('The access password must not exceed 128 characters')
   }
+  if (typeof body.password === 'string' && body.password.length > 0 && body.password.length < 4) {
+    throw ApiError.badRequest('The access password must be at least 4 characters')
+  }
   if (
     body.expiresIn !== undefined &&
     body.expiresIn !== null &&

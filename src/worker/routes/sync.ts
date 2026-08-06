@@ -35,7 +35,11 @@ syncRoutes.get('/', requireAuth, async (c) => {
 
 
   const needFull = since <= 0 || (lo > 0 && since < lo - 1)
-  if (needFull) {
+  // A non-empty `after` key always means the caller is mid-way through a
+  // full snapshot page chain; keep serving snapshot pages regardless of
+  // `since`, so following the returned nextKey can never silently drop
+  // remaining pages.
+  if (needFull || after) {
     const requestedSnapshot = clampInt(
       c.req.query('snapshot'),
       0,
@@ -48,7 +52,9 @@ syncRoutes.get('/', requireAuth, async (c) => {
 
   if (since >= hi) {
     const body: SyncResponse = {
-      cursor: hi,
+      // Never move the client's cursor backwards, even if it reported a
+      // seq ahead of the server (e.g. data was trimmed).
+      cursor: Math.max(since, hi),
       full: false,
       hasMore: false,
       nextKey: null,

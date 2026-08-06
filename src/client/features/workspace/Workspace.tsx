@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { ArrowLeft, Columns2, Eye, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Pencil, Plus, Share2, Star, } from 'lucide-react';
+import { ArrowLeft, Columns2, Download, Eye, FileCode, FileText, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Pencil, Plus, Share2, Star, } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { api } from '../../lib/api';
 import { readingMinutes } from '@shared/markdown-utils';
@@ -16,6 +16,7 @@ import { EditorSkeleton, Empty } from '../../components/feedback';
 import { CodeEditor } from '../../editor/CodeEditor';
 import { insertFiles } from '../../editor/paste';
 import { optimizeImageFile } from '../../lib/image';
+import { exportNoteAsHtml, exportNoteAsMarkdown } from '../../lib/export-note';
 import { Preview } from '../preview/Preview';
 import { Outline } from '../preview/Outline';
 import { SplitResizer } from '../shell/Resizer';
@@ -27,7 +28,7 @@ import { useUi } from '../../store/ui';
 import { useSession } from '../../store/session';
 import { useActiveNote, useNotes } from '../../store/notes';
 import { useSyncScroll } from './sync-scroll';
-import { t } from "../../lib/i18n";
+import { t, useLocale } from "../../lib/i18n";
 const SPLIT_HANDLE_WIDTH = 1;
 const PREVIEW_BORDER_WIDTH = 1;
 const OUTLINE_WIDTH = 168;
@@ -45,6 +46,7 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
     const tags = useNotes((s) => s.tags);
     const notes = useNotes((s) => s.notes);
     const toast = useUi((s) => s.toast);
+    const locale = useLocale();
     const openPanel = useUi((s) => s.openPanel);
     const outlineOpen = useUi((s) => s.outlineOpen);
     const backlinksOpen = useUi((s) => s.backlinksOpen);
@@ -58,9 +60,11 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const titleInputRef = useRef<HTMLInputElement>(null);
     const moreButtonRef = useRef<HTMLButtonElement>(null);
+    const exportMenuRef = useRef<HTMLButtonElement>(null);
     const [view, setView] = useState<EditorView | null>(null);
     const [headings, setHeadings] = useState<Heading[]>([]);
     const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+    const [exportMenuOpen, setExportMenuOpen] = useState(false);
     const [mobileOutlineOpen, setMobileOutlineOpen] = useState(false);
     const [containerWidth, setContainerWidth] = useState(0);
     const isMobile = breakpoint === 'mobile';
@@ -182,6 +186,29 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
         <EditorSkeleton />
       </div>);
     }
+    const exportNote = async (format: 'md' | 'html') => {
+        setExportMenuOpen(false);
+        if (!note)
+            return;
+        if (format === 'md') {
+            exportNoteAsMarkdown({ title: note.title, content });
+            return;
+        }
+        try {
+            await exportNoteAsHtml({ title: note.title, content }, locale);
+        }
+        catch (err) {
+            toast({
+                title: t("workspace.export_failed"),
+                description: err instanceof Error ? err.message : String(err),
+                tone: 'danger',
+            });
+        }
+    };
+    const exportMenuItems: MenuItem[] = [
+        { id: 'md', label: t("workspace.export_markdown"), icon: <FileText size={13}/>, onSelect: () => void exportNote('md') },
+        { id: 'html', label: t("workspace.export_html"), icon: <FileCode size={13}/>, onSelect: () => void exportNote('html') },
+    ];
     const mobileItems: MenuItem[] = [
         {
             id: 'versions',
@@ -194,6 +221,18 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
             label: t("workspace.share"),
             icon: <Share2 size={13}/>,
             onSelect: () => openPanel('share'),
+        },
+        {
+            id: 'export-md',
+            label: t("workspace.export_markdown"),
+            icon: <FileText size={13}/>,
+            onSelect: () => void exportNote('md'),
+        },
+        {
+            id: 'export-html',
+            label: t("workspace.export_html"),
+            icon: <FileCode size={13}/>,
+            onSelect: () => void exportNote('html'),
         },
     ];
     return (<div className="flex h-full min-h-0 flex-col bg-[var(--bg-editor)]">
@@ -252,6 +291,14 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, }: {
                 <History size={14}/>
               </IconButton>
             </Tooltip>)}
+          {!isMobile && (<>
+              <Tooltip label={t("workspace.export")}>
+                <IconButton ref={exportMenuRef} label={t("workspace.export")} size="sm" onClick={() => setExportMenuOpen(true)}>
+                  <Download size={14}/>
+                </IconButton>
+              </Tooltip>
+              <Menu anchor={exportMenuRef} open={exportMenuOpen} onClose={() => setExportMenuOpen(false)} items={exportMenuItems} align="end" width={200}/>
+            </>)}
           {showPreview && (<Tooltip label={t("common.outline")} combo="mod+shift+o">
               <IconButton label={t("common.outline")} size="sm" active={isMobile ? mobileOutlineOpen : outlineOpen} onClick={() => isMobile ? setMobileOutlineOpen((open) => !open) : toggleOutline()}>
                 {(isMobile ? mobileOutlineOpen : outlineOpen) ? <PanelRightClose size={14}/> : <ListTree size={14}/>}

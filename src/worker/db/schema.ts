@@ -282,19 +282,40 @@ interface SchemaMigration {
 
 const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
+    // Explicit whitelist (not a regex over SCHEMA_STATEMENTS) so later
+    // additions like mcp_api_keys can never be picked up accidentally.
     version: 1,
-    statements: SCHEMA_STATEMENTS.filter((statement) =>
-      /(?:schema_migrations|mcp_preferences|mcp_operations|idx_mcp_)/.test(statement),
-    ),
+    statements: [
+      `CREATE TABLE IF NOT EXISTS schema_migrations (
+         version INTEGER PRIMARY KEY,
+         applied_at INTEGER NOT NULL
+       )`,
+      `CREATE TABLE IF NOT EXISTS mcp_preferences (
+         user_id TEXT PRIMARY KEY,
+         write_enabled INTEGER NOT NULL DEFAULT 1 CHECK (write_enabled IN (0, 1)),
+         trash_enabled INTEGER NOT NULL DEFAULT 0 CHECK (trash_enabled IN (0, 1)),
+         updated_at INTEGER NOT NULL
+       )`,
+      `CREATE TABLE IF NOT EXISTS mcp_operations (
+         user_id TEXT NOT NULL,
+         operation_id TEXT NOT NULL,
+         tool TEXT NOT NULL,
+         request_hash TEXT NOT NULL,
+         response_json TEXT NOT NULL,
+         created_at INTEGER NOT NULL,
+         PRIMARY KEY (user_id, operation_id)
+       )`,
+      `CREATE INDEX IF NOT EXISTS idx_mcp_operations_created
+         ON mcp_operations(created_at)`,
+    ],
   },
   {
-    // ai_search_enabled is added by migration only so that fresh databases
-    // (created from SCHEMA_STATEMENTS above) and pre-existing databases
-    // converge on the same column without ALTER conflicts.
+    // Only CREATE TABLE / INDEX statements: D1 does not reliably support
+    // ALTER TABLE ADD COLUMN with constraints, so the AI search preference
+    // lives in app_meta (key `ai-search-enabled:<userId>`) instead of a
+    // new column on the pre-existing mcp_preferences table.
     version: 2,
     statements: [
-      `ALTER TABLE mcp_preferences ADD COLUMN
-        ai_search_enabled INTEGER NOT NULL DEFAULT 0 CHECK (ai_search_enabled IN (0, 1))`,
       `CREATE TABLE IF NOT EXISTS mcp_api_keys (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,

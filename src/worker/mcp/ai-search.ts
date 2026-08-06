@@ -10,8 +10,8 @@
  */
 import { toPlainText } from '@shared/markdown-utils'
 import { truncateText } from '@shared/text-utils'
+import { getMeta, setMeta } from '../db/metadata'
 import type { Env } from '../env'
-import { getMcpPreferences, updateMcpPreferences } from './settings'
 
 export const AI_EMBEDDING_MODEL = '@cf/baai/bge-m3'
 const AI_EMBEDDING_DIMS = 1024
@@ -73,8 +73,8 @@ export async function getAiSearchStatus(
   env: Env,
   userId: string,
 ): Promise<AiSearchStatus> {
-  const preferences = await getMcpPreferences(db, userId)
-  const [indexed, pending] = await Promise.all([
+  const [enabled, indexed, pending] = await Promise.all([
+    isAiSearchEnabled(db, userId),
     db.prepare(`SELECT COUNT(*) AS n FROM ai_note_embeddings WHERE user_id = ?1`)
       .bind(userId).first<{ n: number }>(),
     db.prepare(`SELECT COUNT(*) AS n FROM ai_index_queue WHERE user_id = ?1`)
@@ -82,7 +82,7 @@ export async function getAiSearchStatus(
   ])
   return {
     available: isAiSearchAvailable(env),
-    enabled: preferences.aiSearchEnabled,
+    enabled,
     model: AI_EMBEDDING_MODEL,
     indexedCount: indexed?.n ?? 0,
     pendingCount: pending?.n ?? 0,
@@ -95,7 +95,18 @@ export async function setAiSearchEnabled(
   userId: string,
   enabled: boolean,
 ): Promise<void> {
-  await updateMcpPreferences(db, userId, { aiSearchEnabled: enabled })
+  await setMeta(db, aiSearchPrefKey(userId), enabled ? '1' : '0')
+}
+
+export async function isAiSearchEnabled(db: D1Database, userId: string): Promise<boolean> {
+  return await getMeta(db, aiSearchPrefKey(userId)) === '1'
+}
+
+// Stored in app_meta instead of a column on mcp_preferences: D1 does not
+// reliably support ALTER TABLE ADD COLUMN with constraints, and app_meta
+// exists on every database without any migration.
+function aiSearchPrefKey(userId: string): string {
+  return `ai-search-enabled:${userId}`
 }
 
 /**
@@ -112,12 +123,12 @@ export async function enqueueNoteIndex(
   now = Date.now(),
 ): Promise<void> {
   const guard = kind === 'embed'
-    ? ` WHERE EXISTS (SELECT 1 FROM mcp_preferences WHERE user_id = ?1 AND ai_search_enabled = 1)`
+    ? ` WHERE EXISTS (SELECT 1 FROM app_meta WHERE key = ?5 AND value = '1')`
     : ''
   await db.prepare(
     `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
      SELECT ?1, ?2, ?3, ?4${guard}`,
-  ).bind(userId, noteId, kind, now).run()
+  ).bind(userId, noteId, kind, now, aiSearchPrefKey(userId)).run()
 }
 
 export async function enqueueAllNotesForIndex(
@@ -164,8 +175,7 @@ export async function drainAiIndexQueue(env: Env, max: number): Promise<{ proces
   ).bind(DRAIN_USERS_PER_RUN).all<{ user_id: string }>()
   for (const { user_id } of users) {
     if (processed >= max) break
-    const preferences = await getMcpPreferences(env.DB, user_id)
-    if (!preferences.aiSearchEnabled) {
+    if (!await isAiSearchEnabled(env.DB, user_id)) {
       // The account turned AI search off; its queue would otherwise grow forever.
       await env.DB.prepare(`DELETE FROM ai_index_queue WHERE user_id = ?1`).bind(user_id).run()
       continue

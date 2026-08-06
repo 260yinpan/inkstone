@@ -100,7 +100,7 @@ shareManageRoutes.post('/:noteId', async (c) => {
         ? Date.now() + Math.min(body.expiresIn, 365 * 24 * 60 * 60 * 1000)
         : null
 
-  const replacePassword = body.password === null || (typeof body.password === 'string' && body.password.length > 0)
+  const replacePassword = body.password === null || typeof body.password === 'string'
   const passwordHash =
     body.password === null
       ? null

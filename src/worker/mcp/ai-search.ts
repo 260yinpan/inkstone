@@ -255,7 +255,7 @@ export async function searchSemanticNotes(
   query: string,
   filters: SemanticFilters,
 ): Promise<SemanticSearchHit[] | null> {
-  if (!env.AI) return null
+  if (!env.AI || !await isAiSearchEnabled(db, userId)) return null
   const queryVector = await embedText(env.AI, query)
   const { binds, where } = semanticWhere(userId, filters)
   binds.push(MAX_SEMANTIC_VECTORS)

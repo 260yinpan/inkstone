@@ -112,7 +112,7 @@ export function TagManager({ open, onClose }: {
         <div className="shrink-0 border-b border-[var(--border-subtle)] p-2">
           <div className="relative">
             <Search size={14} className="absolute top-1/2 left-2.5 -translate-y-1/2 text-[var(--text-quaternary)]"/>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("tags.search_placeholder")} className="w-full rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-input)] py-1.5 pr-2 pl-8 text-[12.5px] outline-none placeholder:text-[var(--text-quaternary)] focus:border-[var(--accent)]"/>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("tags.search_placeholder")} className="w-full rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] py-1.5 pr-2 pl-8 text-[12.5px] outline-none placeholder:text-[var(--text-quaternary)] focus:border-[var(--accent)]"/>
           </div>
         </div>
 

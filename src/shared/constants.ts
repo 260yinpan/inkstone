@@ -6,7 +6,8 @@ export const GITHUB_REPOSITORY_URL = 'https://github.com/shuaiplus/inkstone'
 export const GITHUB_PACKAGE_URL =
   'https://raw.githubusercontent.com/shuaiplus/inkstone/refs/heads/main/package.json'
 export const CLIENT_HEADER = 'X-Inkstone-Client'
-export const SESSION_COOKIE = 'inkstone_session'
+export const SESSION_COOKIE = '__Host-inkstone_session'
+export const LEGACY_SESSION_COOKIE = 'inkstone_session'
 
 export const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000
 export const SESSION_RENEW_BEFORE_MS = SESSION_TTL_MS / 2

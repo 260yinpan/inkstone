@@ -65,6 +65,7 @@ export function createApp() {
 
   app.get('/api/health', async (c) => {
     const database = c.get('database')
+    if (!c.get('userId')) return c.json({ ok: true })
     return c.json({
       ok: true,
       database: 'ready',

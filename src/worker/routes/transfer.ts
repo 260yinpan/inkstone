@@ -33,6 +33,15 @@ import { acquireLease } from '../lib/lease'
 import { broadcastCursor, scheduleFtsDrain } from '../lib/notify'
 import { assertContentSize, FORM_BODY_LIMITS, readFormDataWithinLimit } from '../lib/request'
 import { createZip, readZip, type UnzippedEntry } from '@shared/zip'
+import {
+  buildObsidianAssetIndex,
+  collectObsidianReferences,
+  findObsidianAsset,
+  mimeForAttachmentName,
+  rewriteObsidianReferences,
+  stripObsidianComments,
+  type ObsidianAssetIndex,
+} from '../lib/obsidian-import'
 import { requireAuth } from '../middleware/auth'
 
 export const transferRoutes = new Hono<AppBindings>()
@@ -179,14 +188,17 @@ transferRoutes.post('/import', async (c) => {
         } else {
           const entries = await readZip(bytes, {
             ...zipOptions,
-            maxEntryBytes: LIMITS.contentMaxBytes,
-            include: isMarkdownPath,
+            maxEntryBytes: LIMITS.attachmentMaxBytes,
+            include: isImportableEntryPath,
           })
+          const assets = buildObsidianAssetIndex(entries.filter((entry) => !isMarkdownPath(entry.path)))
           for (const entry of entries) {
+            if (!isMarkdownPath(entry.path)) continue
             await importMarkdown(c, userId, entry.path, new TextDecoder().decode(entry.data), {
               folderCache,
               result,
               ftsEnabled,
+              assets,
             })
           }
         }
@@ -232,6 +244,7 @@ interface ImportContext {
   result: ImportResult
   ftsEnabled: boolean
   attachmentEntries?: Map<string, Uint8Array>
+  assets?: ObsidianAssetIndex
 }
 
 interface ExistingNoteIndex {
@@ -818,22 +831,48 @@ async function importMarkdown(
   assertContentSize(text)
 
   const { meta } = splitFrontMatter(text)
-  const dir = path
-    .replace(/\\/g, '/')
-    .split('/')
-    .slice(0, -1)
-    .filter(Boolean)
+  const normalizedPath = path.replace(/\\/g, '/')
+  const dir = normalizedPath.split('/').slice(0, -1).filter(Boolean)
   if (dir[0]?.toLowerCase() === 'notes') dir.shift()
   const folderId = dir.length ? await ensureFolderPath(c.env.DB, userId, dir.join('/'), ctx) : null
 
-  const filename = path.split('/').pop() ?? path
-  const title = importedMarkdownTitle(meta, text, filename.replace(/\.(md|markdown|txt)$/i, ''))
+  const filename = normalizedPath.split('/').pop() ?? path
+  let content = stripObsidianComments(text)
+  if (ctx.assets) {
+    const assetDir = normalizedPath.split('/').slice(0, -1).join('/')
+    const references = collectObsidianReferences(content)
+    const replacements = new Map<string, string>()
+    for (const reference of references) {
+      if (replacements.has(reference)) continue
+      const asset = findObsidianAsset(ctx.assets, reference, assetDir)
+      if (!asset) continue
+      try {
+        const persisted = await persistAttachment(c.env, {
+          id: newId(),
+          userId,
+          noteId: null,
+          filename: asset.name,
+          reportedMime: mimeForAttachmentName(asset.name),
+          bytes: asset.bytes,
+          createdAt: Date.now(),
+        })
+        replacements.set(reference, `/api/files/${persisted.id}`)
+        ctx.result.createdAttachments++
+      } catch (error) {
+        addWarning(ctx.result, `${asset.name}: a referenced file could not be imported`)
+      }
+    }
+    if (replacements.size) {
+      content = rewriteObsidianReferences(content, (reference) => replacements.get(reference) ?? null)
+    }
+  }
+  const title = importedMarkdownTitle(meta, content, filename.replace(/\.(md|markdown|txt)$/i, ''))
 
   await insertNote(
     c,
     userId,
     {
-      content: text,
+      content,
       title,
       folderId,
       isStarred: meta.starred === 'true',
@@ -1254,6 +1293,10 @@ function validateAttachmentArchivePath(value: unknown, sourceId: string): string
 
 function isMarkdownPath(path: string): boolean {
   return /\.(md|markdown|txt)$/i.test(path)
+}
+
+function isImportableEntryPath(path: string): boolean {
+  return isMarkdownPath(path) || /\.(png|jpe?g|gif|webp|avif|svg|pdf)$/i.test(path)
 }
 
 function isImportConflict(value: unknown): value is ImportConflict {

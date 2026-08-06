@@ -474,6 +474,7 @@ async function normalizeSiblingPositions(
   userId: string,
   siblings: FolderOrderRow[],
 ): Promise<void> {
+  const MAX_BATCH_STATEMENTS = 80
   const now = Date.now()
   const statements: D1PreparedStatement[] = []
   for (let index = 0; index < siblings.length; index++) {
@@ -492,7 +493,9 @@ async function normalizeSiblingPositions(
       ).bind(sibling.id, userId, now),
     )
   }
-  if (statements.length) await db.batch(statements)
+  for (let start = 0; start < statements.length; start += MAX_BATCH_STATEMENTS) {
+    await db.batch(statements.slice(start, start + MAX_BATCH_STATEMENTS))
+  }
 }
 
 async function folderPromotionOrder(

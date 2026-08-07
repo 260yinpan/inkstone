@@ -214,6 +214,8 @@ async function processQueueItem(env: Env, userId: string, item: QueueRow): Promi
   if (!ai) return
   const queueGuard = `EXISTS (SELECT 1 FROM ai_index_queue
     WHERE user_id = ?3 AND note_id = ?4 AND kind = ?5 AND created_at = ?6)`
+  const insertQueueGuard = `EXISTS (SELECT 1 FROM ai_index_queue
+    WHERE user_id = ?6 AND note_id = ?7 AND kind = ?8 AND created_at = ?9)`
   if (item.kind === 'delete') {
     await db.batch([
       db.prepare(
@@ -249,7 +251,7 @@ async function processQueueItem(env: Env, userId: string, item: QueueRow): Promi
   await db.batch([
     db.prepare(
       `INSERT INTO ai_note_embeddings (user_id, note_id, model, vector, indexed_at)
-       SELECT ?1, ?2, ?3, ?4, ?5 WHERE ${queueGuard}
+       SELECT ?1, ?2, ?3, ?4, ?5 WHERE ${insertQueueGuard}
        ON CONFLICT(user_id, note_id) DO UPDATE SET
          vector = excluded.vector, indexed_at = excluded.indexed_at`,
     ).bind(

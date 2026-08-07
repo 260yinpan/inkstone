@@ -123,7 +123,8 @@ export function writeSessionCookie(c: Context<AppBindings>, token: string): void
 
 export function clearSessionCookie(c: Context<AppBindings>): void {
   const secure = new URL(c.req.url).protocol === 'https:'
-  for (const name of sessionCookieNames(c.req.url)) {
+  const names = secure ? [SESSION_COOKIE, LEGACY_SESSION_COOKIE] : [LEGACY_SESSION_COOKIE]
+  for (const name of names) {
     setCookie(c, name, '', {
       path: '/',
       httpOnly: true,

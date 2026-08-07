@@ -262,7 +262,7 @@ export const api = {
     list: (params: Record<string, string | number | undefined>) =>
       request<ListNotesResponse>(`/api/notes${toQuery(params)}`),
     get: (id: string) => request<Note>(`/api/notes/${id}`),
-    create: (body: { id?: string; content?: string; title?: string; folderId?: string | null }) =>
+    create: (body: { id?: string; content?: string; title?: string; folderId?: string | null; isStarred?: boolean }) =>
       request<Note>('/api/notes', { method: 'POST', body, timeoutMs: 30_000 }),
     patch: (id: string, body: PatchNoteBody) =>
       request<Note>(`/api/notes/${id}`, { method: 'PATCH', body, timeoutMs: 30_000 }),

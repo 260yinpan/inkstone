@@ -218,6 +218,7 @@ export interface CreateNoteBody {
   title?: string
   content?: string
   folderId?: string | null
+  isStarred?: boolean
 }
 
 export interface PatchNoteBody {

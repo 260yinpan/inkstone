@@ -9,7 +9,7 @@ import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../com
 import { switchThemeWithTransition, useUi } from '../../store/ui';
 import { useSession } from '../../store/session';
 import { useUpdate } from '../../store/update';
-import { useFolderTree, useNavigationCounts, useNotes, type FolderNode } from '../../store/notes';
+import { createContextualNote, useFolderTree, useNavigationCounts, useNotes, type FolderNode } from '../../store/notes';
 import { folderDescendantIds, folderPath, folderPathLabel, openFolderView } from '../../lib/folders';
 import { FolderAppearance, FolderPicker } from '../folders/FolderPicker';
 import { TagManager } from '../tags/TagManager';
@@ -67,7 +67,6 @@ function SidebarRail({ onExpand }: {
 }) {
     const view = useUi((s) => s.view);
     const openView = useUi((s) => s.openView);
-    const createNote = useNotes((s) => s.createNote);
     return (<aside className="flex h-full min-h-0 flex-col items-center bg-[var(--bg-sunken)]">
       <div className="flex h-11 w-full shrink-0 items-center justify-center border-b border-[var(--border-subtle)]">
         <Tooltip label={t("sidebar.expand_navigation")} side="right">
@@ -82,7 +81,7 @@ function SidebarRail({ onExpand }: {
         <RailButton label={t("navigation.favorites")} active={view === 'starred'} icon={<Star size={16}/>} onClick={() => openView('starred')}/>
         <RailButton label={t("navigation.trash")} active={view === 'trash'} icon={<Trash2 size={16}/>} onClick={() => openView('trash')}/>
         <div className="my-1 h-px w-6 bg-[var(--border-subtle)]"/>
-        <RailButton label={t("common.new_note")} combo="mod+n" accent icon={<FilePlus2 size={16}/>} onClick={() => void createNote()}/>
+        <RailButton label={t("common.new_note")} combo="mod+n" accent icon={<FilePlus2 size={16}/>} onClick={() => void createContextualNote()}/>
       </div>
 
       <span className="flex-1"/>

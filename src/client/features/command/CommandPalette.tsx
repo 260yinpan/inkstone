@@ -11,7 +11,7 @@ import { shortTime } from '../../lib/time';
 import { IconButton, Kbd } from '../../components/primitives';
 import { Tooltip, useDialogFocus, useEscape, useLockScroll } from '../../components/overlay';
 import { useUi } from '../../store/ui';
-import { useNotes } from '../../store/notes';
+import { createContextualNote, useNotes } from '../../store/notes';
 import { folderPathLabel, openFolderView } from '../../lib/folders';
 import { useSession } from '../../store/session';
 import { t, useLocale } from "../../lib/i18n";
@@ -46,7 +46,6 @@ export function CommandPalette({ onClose }: {
     const tags = useNotes((s) => s.tags);
     const folders = useNotes((s) => s.folders);
     const openNote = useNotes((s) => s.openNote);
-    const createNote = useNotes((s) => s.createNote);
     const createFolder = useNotes((s) => s.createFolder);
     const deleteNote = useNotes((s) => s.deleteNote);
     const patchNote = useNotes((s) => s.patchNote);
@@ -96,7 +95,7 @@ export function CommandPalette({ onClose }: {
                 icon: <Plus size={14}/>,
                 combo: 'mod+n',
                 group: t("command.commands"),
-                run: () => void createNote(),
+                run: () => void createContextualNote(),
             },
             {
                 id: 'cmd-new-folder',
@@ -247,7 +246,6 @@ export function CommandPalette({ onClose }: {
         activeNoteId,
         appearanceTheme,
         locale,
-        createNote,
         createFolder,
         deleteNote,
         notes,
@@ -350,7 +348,7 @@ export function CommandPalette({ onClose }: {
                 icon: <Plus size={14}/>,
                 group: t("command.commands"),
                 score: 0,
-                run: () => void createNote({ title: text }),
+                run: () => void createContextualNote({ title: text }),
             });
         }
         return all.sort((a, b) => b.score - a.score).slice(0, 40);
@@ -364,7 +362,6 @@ export function CommandPalette({ onClose }: {
         remote,
         recentNoteIds,
         openNote,
-        createNote,
         openView,
         now,
     ]);

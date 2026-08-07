@@ -306,6 +306,8 @@ export const ZH_CN_MESSAGES = {
     "notes.keep_notes_here_when_you_want_them_out_of_the_way_but_not_deleted": "暂时不看但又不想删的笔记可以放这里",
     "notes.keep_this_page_open_and_reconnect_as_soon_as_possible_closing_it_may_mak": "请保持页面打开并尽快恢复网络，否则关闭页面后内容可能无法恢复。",
     "notes.modified": "按修改时间",
+    "notes.recently_deleted_first": "最近删除的在前",
+    "notes.recently_edited_first": "最近编辑的在前",
     "notes.move_to_folder": "移动到文件夹",
     "notes.move_to_value0": "移到「{value0}」",
     "notes.move_value0_notes_to_trash": "把 {value0} 篇笔记移到回收站？",

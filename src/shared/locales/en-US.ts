@@ -305,6 +305,8 @@ export const EN_US_MESSAGES = {
     "notes.keep_notes_here_when_you_want_them_out_of_the_way_but_not_deleted": "Keep notes here when you want them out of the way but not deleted",
     "notes.keep_this_page_open_and_reconnect_as_soon_as_possible_closing_it_may_mak": "Keep this page open and reconnect as soon as possible. Closing it may make these changes unrecoverable.",
     "notes.modified": "Modified",
+    "notes.recently_deleted_first": "Recently deleted first",
+    "notes.recently_edited_first": "Recently edited first",
     "notes.move_to_folder": "Move to folder",
     "notes.move_to_value0": "Move to \"{value0}\"",
     "notes.move_value0_notes_to_trash": "Move {value0} notes to trash?",

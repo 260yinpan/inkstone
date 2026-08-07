@@ -11,9 +11,10 @@ export function FolderPicker({
     open,
     title,
     folders,
-    currentId = null,
+    currentId,
     excludedIds,
     allowRoot = true,
+    rootLabel,
     onSelect,
     onClose,
 }: {
@@ -23,6 +24,7 @@ export function FolderPicker({
     currentId?: string | null;
     excludedIds?: ReadonlySet<string>;
     allowRoot?: boolean;
+    rootLabel?: string;
     onSelect: (folderId: string | null) => void;
     onClose: () => void;
 }) {
@@ -35,7 +37,8 @@ export function FolderPicker({
             .sort((a, b) => a.path.localeCompare(b.path));
     }, [excludedIds, folders, query]);
     const choose = (folderId: string | null) => {
-        onSelect(folderId);
+        if (folderId !== currentId)
+            onSelect(folderId);
         setQuery('');
         onClose();
     };
@@ -51,7 +54,7 @@ export function FolderPicker({
         </label>
       </div>
       <div className="space-y-1 p-2">
-        {allowRoot && !query.trim() && (<FolderChoice label={t("folders.top_level")} selected={currentId == null} onClick={() => choose(null)}/>)}
+        {allowRoot && !query.trim() && (<FolderChoice label={rootLabel ?? t("folders.top_level")} selected={currentId === null} onClick={() => choose(null)}/>)}
         {choices.map(({ folder, path }) => (<FolderChoice key={folder.id} label={path} icon={folder.icon} color={folder.color} selected={currentId === folder.id} onClick={() => choose(folder.id)}/>))}
         {choices.length === 0 && (query.trim() || !allowRoot) && (<p className="px-3 py-10 text-center text-[12.5px] text-[var(--text-quaternary)]">{t("folders.no_match")}</p>)}
       </div>

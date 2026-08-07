@@ -193,6 +193,9 @@ notesRoutes.post('/', async (c) => {
   if (body.folderId !== undefined && body.folderId !== null && typeof body.folderId !== 'string') {
     throw ApiError.badRequest('folderId must be a string or null')
   }
+  if (body.isStarred !== undefined && typeof body.isStarred !== 'boolean') {
+    throw ApiError.badRequest('isStarred must be a boolean')
+  }
   if (body.id !== undefined && !isValidId(body.id)) {
     throw ApiError.badRequest('id must be a valid note id')
   }
@@ -222,9 +225,9 @@ notesRoutes.post('/', async (c) => {
   const insert = c.env.DB.prepare(
     `INSERT OR IGNORE INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
        is_pinned, is_starred, is_archived, position, content_hash, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, 0, 0, 0, ?9, ?10, ?11, ?11)`,
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, 0, ?9, 0, ?10, ?11, ?12, ?12)`,
   )
-    .bind(id, userId, folderId, title, content, excerpt, words, chars, now, hash, now)
+    .bind(id, userId, folderId, title, content, excerpt, words, chars, body.isStarred ? 1 : 0, now, hash, now)
   const derived = buildNoteDerivedStatements({
     db: c.env.DB,
     userId,

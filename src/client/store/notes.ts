@@ -4,13 +4,13 @@ import { useMemo } from 'react';
 import { countText, deriveExcerpt, extractTags, normalizeLinkKey, sortTagNames } from '@shared/markdown-utils';
 import { duplicateNoteTitle } from '@shared/text-utils';
 import { LIMITS } from '@shared/constants';
-import type { Folder, Note, NoteSummary, SortKey, SortOrder, SyncResponse, Tag, ViewKind, } from '@shared/types';
+import type { AppLocale, Folder, Note, NoteSummary, SortKey, SortOrder, SyncResponse, Tag, ViewKind, } from '@shared/types';
 import { api, ApiError, CLIENT_ID } from '../lib/api';
 import { localDb, publishBroadcast, type BroadcastPayload, type OutboxItem } from '../lib/db';
 import { folderDescendantIds } from '../lib/folders';
 import { useSession } from './session';
 import { useUi, type WorkspacePane } from './ui';
-import { t } from "../lib/i18n";
+import { getLocale, t, useLocale } from "../lib/i18n";
 export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'synced' | 'offline';
 interface NotesState {
     notes: Record<string, NoteSummary>;
@@ -42,6 +42,7 @@ interface NotesState {
         title?: string;
         content?: string;
         folderId?: string | null;
+        isStarred?: boolean;
         open?: boolean;
     }) => Promise<string | null>;
     patchNote: (id: string, patch: Partial<Pick<NoteSummary, 'isPinned' | 'isStarred' | 'isArchived'>> & {
@@ -591,12 +592,15 @@ export const useNotes = create<NotesState>((set, get) => ({
         const content = input?.content ?? '';
         const title = (input?.title ?? '').trim().slice(0, LIMITS.titleMaxLength);
         const folderId = input?.folderId ?? currentFolderId();
+        const isStarred = input?.isStarred ?? false;
         if (existing) {
-            const request = api.notes.create({ id, title, content, folderId });
+            const request = api.notes.create({ id, title, content, folderId, ...(isStarred ? { isStarred: true } : {}) });
             pendingNoteCreates.set(id, request);
             try {
                 const note = await request;
                 adoptNote(note, set, get);
+                if (isStarred && !note.isStarred)
+                    await get().patchNote(note.id, { isStarred: true });
                 return note.id;
             }
             catch (err) {
@@ -618,7 +622,7 @@ export const useNotes = create<NotesState>((set, get) => ({
             folderId,
             tags: extractTags(content),
             isPinned: false,
-            isStarred: false,
+            isStarred,
             isArchived: false,
             wordCount: words,
             charCount: chars,
@@ -632,11 +636,13 @@ export const useNotes = create<NotesState>((set, get) => ({
         adoptNote(optimistic, set, get);
         if (input?.open !== false)
             useUi.getState().setActiveNote(id);
-        const request = api.notes.create({ id, title, content, folderId });
+        const request = api.notes.create({ id, title, content, folderId, ...(isStarred ? { isStarred: true } : {}) });
         pendingNoteCreates.set(id, request);
         try {
             const note = await request;
             adoptNote(note, set, get);
+            if (isStarred && !note.isStarred)
+                await get().patchNote(note.id, { isStarred: true });
             return note.id;
         }
         catch (err) {
@@ -2498,6 +2504,23 @@ function currentFolderId(): string | null {
     const ui = useUi.getState();
     return ui.view === 'folder' ? ui.folderId : null;
 }
+export function createContextualNote(input?: {
+    title?: string;
+    content?: string;
+    open?: boolean;
+}): Promise<string | null> {
+    const ui = useUi.getState();
+    if (ui.view === 'trash' || ui.view === 'archived') {
+        ui.openView('all');
+        return useNotes.getState().createNote(input);
+    }
+    return useNotes.getState().createNote({
+        ...input,
+        ...(ui.view === 'folder' ? { folderId: ui.folderId } : {}),
+        ...(ui.view === 'tag' && ui.tag && input?.content === undefined ? { content: `#${ui.tag}\n\n` } : {}),
+        ...(ui.view === 'starred' ? { isStarred: true } : {}),
+    });
+}
 function toastError(err: unknown, fallback: string): void {
     useUi.getState().toast({
         title: fallback,
@@ -2607,7 +2630,7 @@ function matchesView(note: NoteSummary, view: ViewKind, folderId: string | null,
             return true;
     }
 }
-function compare(a: NoteSummary, b: NoteSummary, sort: SortKey, order: SortOrder): number {
+function compare(a: NoteSummary, b: NoteSummary, sort: SortKey, order: SortOrder, locale: AppLocale): number {
     if (a.isPinned !== b.isPinned)
         return a.isPinned ? -1 : 1;
     const dir = order === 'asc' ? 1 : -1;
@@ -2617,7 +2640,7 @@ function compare(a: NoteSummary, b: NoteSummary, sort: SortKey, order: SortOrder
             result = (a.createdAt - b.createdAt) * dir;
             break;
         case 'title':
-            result = a.title.localeCompare(b.title, 'zh-CN') * dir;
+            result = a.title.localeCompare(b.title, locale, { numeric: true, sensitivity: 'base' }) * dir;
             break;
         case 'updated':
         default:
@@ -2625,6 +2648,9 @@ function compare(a: NoteSummary, b: NoteSummary, sort: SortKey, order: SortOrder
             break;
     }
     return result || a.id.localeCompare(b.id);
+}
+function compareTrash(a: NoteSummary, b: NoteSummary): number {
+    return (b.deletedAt ?? b.updatedAt) - (a.deletedAt ?? a.updatedAt) || a.id.localeCompare(b.id);
 }
 function pickInitialNoteId(notes: Record<string, NoteSummary>, folders: Folder[]): string | null {
     const ui = useUi.getState();
@@ -2636,12 +2662,16 @@ function pickInitialNoteId(notes: Record<string, NoteSummary>, folders: Folder[]
     if (ui.view === 'recent') {
         visible.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
     }
+    else if (ui.view === 'trash') {
+        visible.sort(compareTrash);
+    }
     else {
-        visible.sort((a, b) => compare(a, b, ui.sort, ui.order));
+        visible.sort((a, b) => compare(a, b, ui.sort, ui.order, getLocale()));
     }
     return visible[0]?.id ?? null;
 }
 export function useVisibleNotes(): NoteSummary[] {
+    const locale = useLocale();
     const notes = useNotes((s) => s.notes);
     const folders = useNotes((s) => s.folders);
     const view = useUi((s) => s.view);
@@ -2657,8 +2687,10 @@ export function useVisibleNotes(): NoteSummary[] {
                 .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
                 .slice(0, 60);
         }
-        return list.sort((a, b) => compare(a, b, sort, order));
-    }, [notes, folders, view, folderId, tag, sort, order]);
+        if (view === 'trash')
+            return list.sort(compareTrash);
+        return list.sort((a, b) => compare(a, b, sort, order, locale));
+    }, [notes, folders, view, folderId, tag, sort, order, locale]);
 }
 export interface FolderNode extends Folder {
     children: FolderNode[];

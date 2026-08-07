@@ -168,7 +168,7 @@ export function createDemoBackend(): DemoBackend {
       folderId: typeof body.folderId === 'string' && state.folders.has(body.folderId) ? body.folderId : null,
       tags: [],
       isPinned: false,
-      isStarred: false,
+      isStarred: body.isStarred === true,
       isArchived: false,
       wordCount: 0,
       charCount: 0,

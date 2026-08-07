@@ -90,6 +90,7 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, pane = 'active'
     const defaultEditorWidth = defaultContentWidth / 2;
     const defaultPreviewWidth = PREVIEW_BORDER_WIDTH + defaultOutlineWidth + defaultEditorWidth;
     const effectiveSplitRatio = splitRatio ?? (containerWidth > 0 ? defaultEditorWidth / containerWidth : 0.5);
+    const tagColors = useMemo(() => new Map(tags.map((tag) => [tag.name, tag.color])), [tags]);
     const editorWidth = splitRatio === null
         ? containerWidth > 0
             ? `${defaultEditorWidth}px`
@@ -441,7 +442,7 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, pane = 'active'
           </button>)}
         {note.tags.length > 0 && (<span className="flex min-w-0 items-center gap-0.5 overflow-hidden">
             {note.tags.slice(0, isMobile ? 2 : 4).map((name) => (<button key={name} type="button" onClick={() => useUi.getState().openView('tag', { tag: name })} className="inline-flex min-w-0 items-center gap-0.5 rounded px-1 py-0.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--accent)]">
-                <Hash size={9} className="shrink-0"/><span className="truncate">{name}</span>
+                <Hash size={9} className="shrink-0" style={{ color: tagColors.get(name) ?? undefined }}/><span className="truncate">{name}</span>
               </button>))}
           </span>)}
         <span className="flex-1"/>

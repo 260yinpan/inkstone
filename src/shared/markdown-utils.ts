@@ -153,11 +153,15 @@ export function sortTagNames(tags: Iterable<string>): string[] {
 export function extractTags(content: string): string[] {
   const frontMatter = parseFrontMatter(content)
   const safe = stripCodeRegions(frontMatter.body)
-  const out = new Set<string>()
+  const out = new Map<string, string>()
+  const add = (value: string) => {
+    const key = value.normalize('NFKC').toLocaleLowerCase()
+    if (!out.has(key)) out.set(key, value)
+  }
   for (const tag of frontMatterTags(frontMatter.data)) {
     const normalized = tag.replace(/^#/, '').trim()
-    if (normalized && normalized.length <= 60 && !/^\d+$/.test(normalized)) out.add(normalized)
-    if (out.size >= 64) return sortTagNames(out)
+    if (normalized && normalized.length <= 60 && !/^\d+$/.test(normalized)) add(normalized)
+    if (out.size >= 64) return sortTagNames(out.values())
   }
   for (const m of safe.matchAll(TAG_RE)) {
     let tag = m[2]!
@@ -165,10 +169,10 @@ export function extractTags(content: string): string[] {
     tag = tag.replace(/[.,\uff0c\u3002;\uff1b:\uff1a!\uff01?\uff1f\u3001·/]+$/u, '')
     if (!tag || /^\d+$/.test(tag)) continue
     if (tag.length > 60) continue
-    out.add(tag)
+    add(tag)
     if (out.size >= 64) break
   }
-  return sortTagNames(out)
+  return sortTagNames(out.values())
 }
 
 function frontMatterTags(data: Record<string, unknown>): string[] {
@@ -240,6 +244,20 @@ function escapeRegExp(text: string): string {
 
 
 export function replaceTagInContent(content: string, from: string, to: string | null): string {
+  const frontMatter = parseFrontMatter(content)
+  const hasFrontMatter = frontMatter.lineOffset > 0
+  const normalized = content.replace(/\r\n/g, '\n')
+  const lines = normalized.split('\n')
+  const header = hasFrontMatter ? lines.slice(0, frontMatter.lineOffset) : []
+  const body = hasFrontMatter ? lines.slice(frontMatter.lineOffset).join('\n') : normalized
+  const rewrittenFrontMatter = hasFrontMatter && frontMatter.errors.length === 0
+    ? replaceTagInFrontMatter(header, frontMatter.raw, from, to)
+    : header
+  const rewrittenBody = replaceInlineTag(body, from, to)
+  return [...rewrittenFrontMatter, rewrittenBody].join('\n')
+}
+
+function replaceInlineTag(content: string, from: string, to: string | null): string {
   const pattern = new RegExp(
     `(^|[\\s(\uff08\\[\u3010>\u300c\u300e\uff0c,\u3001;\uff1b])#${escapeRegExp(from)}(?![\\p{L}\\p{N}_\\-/·])`,
     'gu',
@@ -277,6 +295,53 @@ export function replaceTagInContent(content: string, from: string, to: string | 
     lines[i] = replaced.replace(MASK_RE, (_s, idx: string) => spans[Number(idx)] ?? '')
   }
   return lines.join('\n')
+}
+
+function replaceTagInFrontMatter(
+  header: string[],
+  raw: string,
+  from: string,
+  to: string | null,
+): string[] {
+  const document = parseDocument(raw, { prettyErrors: false, uniqueKeys: true })
+  if (document.errors.length) return header
+  const data = document.toJS({ maxAliasCount: 20 }) as unknown
+  if (!isPlainRecord(data)) return header
+  const key = Object.prototype.hasOwnProperty.call(data, 'tags')
+    ? 'tags'
+    : Object.prototype.hasOwnProperty.call(data, 'tag') ? 'tag' : null
+  if (!key) return header
+  const value = data[key]
+  const rewrite = (tag: string) => {
+    const hash = tag.trim().startsWith('#') ? '#' : ''
+    const name = tag.trim().replace(/^#/, '')
+    if (name !== from) return tag
+    return to ? `${hash}${to}` : null
+  }
+  let next: string[] | string | null = null
+  if (Array.isArray(value)) {
+    const values = value
+      .filter((item): item is string => typeof item === 'string')
+      .map(rewrite)
+      .filter((item): item is string => item !== null)
+    if (values.length === value.length && values.every((item, index) => item === value[index])) return header
+    next = values.length ? values : null
+  } else if (typeof value === 'string') {
+    const separator = value.includes(',') ? ', ' : ' '
+    const values = frontMatterTags({ [key]: value })
+      .map(rewrite)
+      .filter((item): item is string => item !== null)
+    const joined = values.join(separator)
+    if (joined === value) return header
+    next = joined || null
+  } else {
+    return header
+  }
+  if (next === null) document.delete(key)
+  else document.set(key, next)
+  const closing = header.at(-1) ?? '---'
+  const serialized = document.toString().replace(/\n$/, '')
+  return [header[0] ?? '---', ...(serialized ? serialized.split('\n') : []), closing]
 }
 
 export function replaceWikiLinkTarget(content: string, from: string, to: string): string {

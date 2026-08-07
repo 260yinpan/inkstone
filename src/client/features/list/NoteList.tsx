@@ -44,6 +44,7 @@ export function NoteList() {
     const toggleNavDrawer = useUi((s) => s.toggleNavDrawer);
     const notes = useVisibleNotes();
     const folders = useNotes((s) => s.folders);
+    const tags = useNotes((s) => s.tags);
     const loading = useNotes((s) => s.loading);
     const hydrated = useNotes((s) => s.hydrated);
     const openNote = useNotes((s) => s.openNote);
@@ -53,6 +54,7 @@ export function NoteList() {
     const sortButtonRef = useRef<HTMLButtonElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const now = useNow();
+    const tagColors = useMemo(() => new Map(tags.map((item) => [item.name, item.color])), [tags]);
 
     useEffect(() => setFilter(''), [view, folderId, tag]);
     const title = useMemo(() => {
@@ -198,7 +200,7 @@ export function NoteList() {
                   {group.label}
                 </div>)}
               <div role="presentation" className="space-y-px">
-                {group.items.map(({ note, ranges }) => (<NoteRow key={note.id} note={note} highlight={ranges} density={density} now={now} onRangeSelect={selectRange}/>))}
+                {group.items.map(({ note, ranges }) => (<NoteRow key={note.id} note={note} highlight={ranges} density={density} now={now} tagColors={tagColors} onRangeSelect={selectRange}/>))}
               </div>
             </div>)))}
       </div>
@@ -208,7 +210,7 @@ export function NoteList() {
       <Menu anchor={sortButtonRef} open={sortMenuOpen} onClose={() => setSortMenuOpen(false)} items={sortItems} align="end"/>
     </section>);
 }
-const NoteRow = memo(function NoteRow({ note, highlight, density, now, onRangeSelect, }: {
+const NoteRow = memo(function NoteRow({ note, highlight, density, now, tagColors, onRangeSelect, }: {
     note: NoteSummary;
     highlight: [
         number,
@@ -216,6 +218,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, now, onRangeSe
     ][];
     density: 'comfortable' | 'compact';
     now: number;
+    tagColors: Map<string, string | null>;
     onRangeSelect: (noteId: string) => void;
 }) {
     const breakpoint = useBreakpoint();
@@ -421,7 +424,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, now, onRangeSe
                 </>)}
               {note.tags.length > 0 && density === 'comfortable' && (<span className="flex min-w-0 items-center gap-1 truncate">
                   <span className="opacity-50">·</span>
-                  {note.tags.slice(0, 3).map((t) => (<span key={t} className="truncate text-[var(--text-tertiary)]">
+                  {note.tags.slice(0, 3).map((t) => (<span key={t} className="truncate text-[var(--text-tertiary)]" style={{ color: tagColors.get(t) ?? undefined }}>
                       #{t}
                     </span>))}
                 </span>)}

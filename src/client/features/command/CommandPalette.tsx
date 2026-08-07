@@ -310,7 +310,7 @@ export function CommandPalette({ onClose }: {
             kind: 'tag',
             label: `#${item.name}`,
             detail: t("common.value0_notes", { value0: item.count }),
-            icon: <Hash size={14}/>,
+            icon: <Hash size={14} style={{ color: item.color ?? undefined }}/>,
             group: t("navigation.tag"),
             score: match.score,
             run: () => openView('tag', { tag: item.name }),

@@ -2,19 +2,15 @@ import { useMemo, useRef, useState } from 'react';
 import { MoreHorizontal, Pencil, Search, Trash2, X } from 'lucide-react';
 import type { Tag } from '@shared/types';
 import { LIMITS } from '@shared/constants';
-import { compareTagNames } from '@shared/markdown-utils';
+import { compareTagNames, replaceTagInContent, sortTagNames } from '@shared/markdown-utils';
+import { ORGANIZER_COLORS } from '@shared/organizer-colors';
 import { cn } from '../../lib/cn';
 import { api } from '../../lib/api';
 import { Drawer, Menu, confirm, type MenuItem } from '../../components/overlay';
 import { IconButton } from '../../components/primitives';
-import { useNotes } from '../../store/notes';
+import { setOptimisticTagCache, useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { t } from "../../lib/i18n";
-
-const TAG_PRESET_COLORS = [
-  '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e',
-  '#14b8a6', '#0ea5e9', '#6366f1', '#8b5cf6', '#ec4899', '#64748b',
-] as const;
 
 export function TagManager({ open, onClose }: {
     open: boolean;
@@ -28,7 +24,9 @@ export function TagManager({ open, onClose }: {
     const [draftName, setDraftName] = useState('');
     const [colorEditingId, setColorEditingId] = useState<string | null>(null);
     const [menuId, setMenuId] = useState<string | null>(null);
+    const [busyId, setBusyId] = useState<string | null>(null);
     const rowRefs = useRef(new Map<string, HTMLElement>());
+    const skipRenameBlur = useRef(false);
 
     const filtered = useMemo(() => {
         const needle = query.trim().toLowerCase();
@@ -39,6 +37,7 @@ export function TagManager({ open, onClose }: {
     }, [tags, query]);
 
     const startRename = (tag: Tag) => {
+        skipRenameBlur.current = false;
         setRenamingId(tag.id);
         setDraftName(tag.name);
         setMenuId(null);
@@ -47,23 +46,58 @@ export function TagManager({ open, onClose }: {
     const commitRename = async (tag: Tag) => {
         const next = draftName.trim().replace(/^#+/, '');
         setRenamingId(null);
-        if (!next || next === tag.name)
+        if (!next || next === tag.name || busyId)
             return;
         if (/[\s#]/.test(next) || next.length > LIMITS.tagNameMaxLength) {
             toast({ title: t("tags.invalid_name"), tone: 'danger' });
             return;
         }
+        const target = tags.find((candidate) => candidate.id !== tag.id
+            && candidate.name.localeCompare(next, undefined, { sensitivity: 'base' }) === 0);
+        if (target) {
+            const merge = await confirm({
+                title: t("tags.merge_confirm_value0_value1", { value0: tag.name, value1: target.name }),
+                description: t("tags.merge_description"),
+                confirmLabel: t("tags.merge"),
+            });
+            if (!merge)
+                return;
+        }
+        const destination = target?.name ?? next;
+        const before = useNotes.getState();
+        const beforeUi = useUi.getState();
+        setBusyId(tag.id);
+        setOptimisticTagCache((state) => ({
+            tags: optimisticRenameTags(state.tags, tag.id, destination),
+            notes: rewriteNoteSummaryTags(state.notes, tag.name, destination),
+        }));
+        if (beforeUi.view === 'tag' && beforeUi.tag === tag.name)
+            openView('tag', { tag: destination });
         try {
-            await api.tags.patch(tag.id, { name: next });
-            toast({ title: t("tags.renamed"), tone: 'success' });
-            await useNotes.getState().pull();
+            const result = await api.tags.patch(tag.id, { name: next });
+            await useNotes.getState().pull({ force: true });
+            rewriteLoadedNoteContents(tag.name, destination);
+            toast({
+                title: t("tags.renamed"),
+                description: t("tags.updated_note_bodies_value0", {
+                    value0: 'renamed' in result ? result.renamed : tag.count,
+                }),
+                tone: 'success',
+            });
         }
         catch (err) {
+            setOptimisticTagCache(() => ({ tags: before.tags, notes: before.notes }));
+            const ui = useUi.getState();
+            if (ui.view === 'tag' && ui.tag === destination)
+                openView(beforeUi.view, { folderId: beforeUi.folderId, tag: beforeUi.tag });
             toast({
                 title: t("tags.rename_failed"),
                 description: err instanceof Error ? err.message : String(err),
                 tone: 'danger',
             });
+        }
+        finally {
+            setBusyId(null);
         }
     };
 
@@ -71,39 +105,70 @@ export function TagManager({ open, onClose }: {
         setMenuId(null);
         const ok = await confirm({
             title: t("tags.delete_confirm_value0", { value0: tag.name }),
+            description: t("tags.delete_description_value0", { value0: tag.count }),
             tone: 'danger',
             confirmLabel: t("tags.delete"),
         });
         if (!ok)
             return;
+        const before = useNotes.getState();
+        const beforeUi = useUi.getState();
+        setBusyId(tag.id);
+        setOptimisticTagCache((state) => ({
+            tags: state.tags.filter((candidate) => candidate.id !== tag.id),
+            notes: rewriteNoteSummaryTags(state.notes, tag.name, null),
+        }));
+        if (beforeUi.view === 'tag' && beforeUi.tag === tag.name)
+            openView('all');
         try {
-            await api.tags.remove(tag.id);
-            toast({ title: t("tags.deleted"), tone: 'success' });
-            await useNotes.getState().pull();
+            const result = await api.tags.remove(tag.id);
+            await useNotes.getState().pull({ force: true });
+            rewriteLoadedNoteContents(tag.name, null);
+            toast({
+                title: t("tags.deleted"),
+                description: t("tags.updated_note_bodies_value0", { value0: result.affected }),
+                tone: 'success',
+            });
         }
         catch (err) {
+            setOptimisticTagCache(() => ({ tags: before.tags, notes: before.notes }));
+            const ui = useUi.getState();
+            if (beforeUi.view === 'tag' && ui.view === 'all')
+                openView('tag', { tag: tag.name });
             toast({
                 title: t("tags.delete_failed"),
                 description: err instanceof Error ? err.message : String(err),
                 tone: 'danger',
             });
         }
+        finally {
+            setBusyId(null);
+        }
     };
 
     const applyColor = async (tag: Tag, color: string | null) => {
         setColorEditingId(null);
-        if (tag.color === color)
+        if (tag.color === color || busyId)
             return;
+        const before = useNotes.getState().tags;
+        setBusyId(tag.id);
+        setOptimisticTagCache((state) => ({
+            tags: state.tags.map((candidate) => candidate.id === tag.id ? { ...candidate, color } : candidate),
+        }));
         try {
             await api.tags.patch(tag.id, { color });
-            await useNotes.getState().pull();
+            await useNotes.getState().refreshTags();
         }
         catch (err) {
+            setOptimisticTagCache(() => ({ tags: before }));
             toast({
                 title: t("tags.color_failed"),
                 description: err instanceof Error ? err.message : String(err),
                 tone: 'danger',
             });
+        }
+        finally {
+            setBusyId(null);
         }
     };
 
@@ -130,16 +195,26 @@ export function TagManager({ open, onClose }: {
                           rowRefs.current.set(tag.id, el);
                       else
                           rowRefs.current.delete(tag.id);
-                  }} className={cn('rounded-[var(--r-md)] transition-colors', menuId === tag.id && 'bg-[var(--bg-hover)]')}>
+                  }} aria-busy={busyId === tag.id} className={cn('rounded-[var(--r-md)] transition-colors', menuId === tag.id && 'bg-[var(--bg-hover)]', busyId === tag.id && 'pointer-events-none opacity-60')}>
                   <div className="flex h-9 items-center gap-2 px-1.5">
                     <button type="button" onClick={() => setColorEditingId(colorEditingId === tag.id ? null : tag.id)} aria-label={t("tags.change_color")} className="flex size-5 shrink-0 items-center justify-center rounded-full border border-[var(--border-default)] transition-transform hover:scale-110">
                       {tag.color ? (<span className="size-3 rounded-full" style={{ background: tag.color }}/>) : (<span className="size-3 rounded-full bg-[var(--text-quaternary)] opacity-40"/>)}
                     </button>
                     {renamingId === tag.id ? (<input value={draftName} onChange={(event) => setDraftName(event.target.value)} onKeyDown={(event) => {
-                          if (event.key === 'Enter')
+                          if (event.key === 'Enter') {
+                              skipRenameBlur.current = true;
                               void commitRename(tag);
-                          else if (event.key === 'Escape')
+                          }
+                          else if (event.key === 'Escape') {
+                              skipRenameBlur.current = true;
                               setRenamingId(null);
+                          }
+                      }} onBlur={() => {
+                          if (skipRenameBlur.current) {
+                              skipRenameBlur.current = false;
+                              return;
+                          }
+                          void commitRename(tag);
                       }} autoFocus className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-0.5 text-[12.5px] outline-none"/>) : (<button type="button" onClick={() => openView('tag', { tag: tag.name })} onDoubleClick={() => startRename(tag)} className="min-w-0 flex-1 truncate text-left text-[12.5px] text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
                         <span className="text-[var(--text-primary)]">#</span>{tag.name}
                       </button>)}
@@ -152,7 +227,7 @@ export function TagManager({ open, onClose }: {
                   </div>
 
                   {colorEditingId === tag.id && (<div className="flex flex-wrap items-center gap-1.5 px-1.5 pb-2">
-                      {TAG_PRESET_COLORS.map((color) => (<button key={color} type="button" onClick={() => void applyColor(tag, color)} aria-label={color} className="size-5 rounded-full border border-[var(--border-default)] transition-transform hover:scale-110" style={{ background: color }}/>))}
+                      {ORGANIZER_COLORS.map((color) => (<button key={color} type="button" onClick={() => void applyColor(tag, color)} aria-label={color} aria-pressed={tag.color === color} className="size-5 rounded-full border border-[var(--border-default)] transition-transform hover:scale-110 aria-pressed:ring-2 aria-pressed:ring-[var(--accent)] aria-pressed:ring-offset-1" style={{ background: color }}/>))}
                       <button type="button" onClick={() => void applyColor(tag, null)} aria-label={t("tags.clear_color")} className="flex size-5 items-center justify-center rounded-full border border-[var(--border-default)] text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]">
                         <X size={12}/>
                       </button>
@@ -169,4 +244,42 @@ export function TagManager({ open, onClose }: {
         </div>
       </div>
     </Drawer>);
+}
+
+function optimisticRenameTags(tags: Tag[], sourceId: string, destination: string): Tag[] {
+    const source = tags.find((tag) => tag.id === sourceId);
+    if (!source)
+        return tags;
+    const target = tags.find((tag) => tag.id !== sourceId
+        && tag.name.localeCompare(destination, undefined, { sensitivity: 'base' }) === 0);
+    if (!target)
+        return tags.map((tag) => tag.id === sourceId ? { ...tag, name: destination } : tag);
+    return tags
+        .filter((tag) => tag.id !== sourceId)
+        .map((tag) => tag.id === target.id ? { ...tag, count: Math.max(tag.count, source.count) } : tag);
+}
+
+function rewriteNoteSummaryTags(
+    notes: Record<string, import('@shared/types').NoteSummary>,
+    from: string,
+    to: string | null,
+) {
+    const next = { ...notes };
+    for (const [id, note] of Object.entries(notes)) {
+        if (!note.tags.includes(from))
+            continue;
+        const names = note.tags.flatMap((name) => name === from ? (to ? [to] : []) : [name]);
+        const unique = new Map(names.map((name) => [name.normalize('NFKC').toLocaleLowerCase(), name]));
+        next[id] = { ...note, tags: sortTagNames(unique.values()) };
+    }
+    return next;
+}
+
+function rewriteLoadedNoteContents(from: string, to: string | null) {
+    const state = useNotes.getState();
+    for (const [id, content] of Object.entries(state.contents)) {
+        const rewritten = replaceTagInContent(content, from, to);
+        if (rewritten !== content)
+            state.editContent(id, rewritten);
+    }
 }

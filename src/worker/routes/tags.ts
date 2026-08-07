@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { LIMITS } from '@shared/constants'
 import { countText, deriveExcerpt, replaceTagInContent } from '@shared/markdown-utils'
-import { truncateText, utf8ByteLength } from '@shared/text-utils'
+import { utf8ByteLength } from '@shared/text-utils'
 import type { AppBindings } from '../env'
 import { toTag, type TagRow } from '../db/rows'
 import { buildNoteDerivedStatements } from '../db/writes'
@@ -51,11 +51,14 @@ tagsRoutes.patch('/:id', async (c) => {
   if (body.color !== undefined && body.color !== null && typeof body.color !== 'string') {
     throw ApiError.badRequest('color must be a string or null')
   }
+  if (typeof body.color === 'string' && !/^#[0-9a-f]{6}$/i.test(body.color)) {
+    throw ApiError.badRequest('color must be a six-digit hexadecimal color')
+  }
   if (body.name !== undefined && typeof body.name !== 'string') {
     throw ApiError.badRequest('name must be a string')
   }
 
-  const color = body.color === undefined ? tag.color : body.color ? truncateText(body.color, 32) : null
+  const color = body.color === undefined ? tag.color : body.color
 
   if (typeof body.name === 'string') {
     const next = body.name.trim().replace(/^#+/, '')
@@ -64,7 +67,13 @@ tagsRoutes.patch('/:id', async (c) => {
     if (/[\s#]/.test(next)) throw ApiError.badRequest('Tag names cannot contain spaces or #')
 
     if (next !== tag.name) {
-      const rewrite = await rewriteTagInNotes(c, userId, id, tag.name, next)
+      const existing = await c.env.DB.prepare(
+        `SELECT id, name FROM tags
+          WHERE user_id = ?1 AND id <> ?2 AND name = ?3 COLLATE NOCASE
+          ORDER BY created_at ASC, id ASC LIMIT 1`,
+      ).bind(userId, id, next).first<{ id: string; name: string }>()
+      const destinationName = existing?.name ?? next
+      const rewrite = await rewriteTagInNotes(c, userId, id, tag.name, destinationName)
       const now = Date.now()
       const targetId = newId()
       const explicitColor = body.color !== undefined ? 1 : 0
@@ -80,21 +89,21 @@ tagsRoutes.patch('/:id', async (c) => {
             WHERE source.id = ?1 AND source.user_id = ?2 AND source.name = ?3
            ON CONFLICT(user_id, name) DO UPDATE SET
              color = CASE WHEN ?6 = 1 THEN ?7 ELSE COALESCE(tags.color, excluded.color) END`,
-        ).bind(id, userId, tag.name, targetId, next, explicitColor, color, now),
+        ).bind(id, userId, tag.name, targetId, destinationName, explicitColor, color, now),
         c.env.DB.prepare(
           `INSERT OR IGNORE INTO note_tags (note_id, tag_id)
            SELECT nt.note_id, target.id
              FROM note_tags nt
              JOIN tags target ON target.user_id = ?2 AND target.name = ?4
             WHERE nt.tag_id = ?1 AND ${sourceGuard}`,
-        ).bind(id, userId, tag.name, next),
+        ).bind(id, userId, tag.name, destinationName),
         c.env.DB.prepare(`DELETE FROM note_tags WHERE tag_id = ?1 AND ${sourceGuard}`)
           .bind(id, userId, tag.name),
         c.env.DB.prepare(
           `INSERT INTO changes (user_id, entity, entity_id, op, at)
            SELECT ?2, 'tag', target.id, 'upsert', ?4
              FROM tags target WHERE target.user_id = ?2 AND target.name = ?5 AND ${sourceGuard}`,
-        ).bind(id, userId, tag.name, now, next),
+        ).bind(id, userId, tag.name, now, destinationName),
         c.env.DB.prepare(
           `INSERT INTO changes (user_id, entity, entity_id, op, at)
            SELECT ?2, 'tag', ?1, 'delete', ?4 WHERE ${sourceGuard}`,

@@ -566,11 +566,9 @@ function TagSection({ onManageTags }: {
     const openView = useUi((s) => s.openView);
     const [expanded, setExpanded] = useState(false);
     const usedTags = useMemo(() => [...tags]
-            .filter((t) => t.count > 0)
-            .sort((a, b) => b.count - a.count || compareTagNames(a.name, b.name)), [tags]);
+            .filter((t) => t.count > 0 || (view === 'tag' && activeTag === t.name))
+            .sort((a, b) => b.count - a.count || compareTagNames(a.name, b.name)), [activeTag, tags, view]);
     const visible = expanded ? usedTags : usedTags.slice(0, 8);
-    if (!usedTags.length)
-        return null;
     return (<section className="group mt-4">
       <div className="flex items-center justify-between pr-0.5">
         <SectionLabel>{t("navigation.tag")}</SectionLabel>
@@ -581,6 +579,9 @@ function TagSection({ onManageTags }: {
         </Tooltip>
       </div>
       <div className="mt-0.5 space-y-px">
+        {!usedTags.length && (<button type="button" onClick={onManageTags} className="h-10 w-full rounded-[var(--r-md)] px-2 text-left text-[11.5px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:h-[28px]">
+            {t("tags.empty_manage")}
+          </button>)}
         {visible.map((tag) => {
             const active = view === 'tag' && activeTag === tag.name;
             return (<button key={tag.id} type="button" aria-current={active ? 'page' : undefined} onClick={() => openView('tag', { tag: tag.name })} className={cn('flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-left md:h-[28px]', 'transition-colors duration-[var(--dur-fast)]', active

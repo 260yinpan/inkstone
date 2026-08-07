@@ -423,8 +423,14 @@ export function createDemoBackend(): DemoBackend {
     const current = listTags(state).find((tag) => tag.id === c.req.param('id'))
     if (!current) return apiError(404, 'not_found', 'Tag not found')
     const body = await jsonBody(c.req.raw)
+    if (typeof body.color === 'string' && !/^#[0-9a-f]{6}$/i.test(body.color)) {
+      return apiError(400, 'bad_request', 'Tag color must be a six-digit hexadecimal color')
+    }
     if (typeof body.name === 'string' && body.name.trim() && body.name.trim() !== current.name) {
-      const nextName = body.name.trim().replace(/^#/, '')
+      const requestedName = body.name.trim().replace(/^#/, '')
+      const existing = listTags(state).find((tag) => tag.id !== current.id
+        && tag.name.localeCompare(requestedName, undefined, { sensitivity: 'base' }) === 0)
+      const nextName = existing?.name ?? requestedName
       let renamed = 0
       for (const note of state.notes.values()) {
         const content = replaceTagInContent(note.content, current.name, nextName)
@@ -433,10 +439,10 @@ export function createDemoBackend(): DemoBackend {
         renamed++
       }
       state.tagIds.delete(current.name)
-      state.tagIds.set(nextName, current.id)
+      if (!existing) state.tagIds.set(nextName, current.id)
       state.tagColors.set(nextName, body.color === null || typeof body.color === 'string'
         ? body.color
-        : state.tagColors.get(current.name) ?? null)
+        : state.tagColors.get(nextName) ?? state.tagColors.get(current.name) ?? null)
       state.tagColors.delete(current.name)
       state.cursor++
       return c.json({ ok: true as const, renamed })

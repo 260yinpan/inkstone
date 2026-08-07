@@ -132,6 +132,11 @@ export function buildNoteDerivedStatements(
          SELECT json_extract(j.value, '$.id'), ?1, json_extract(j.value, '$.name'), NULL, ?2
            FROM json_each(?3) AS j
           WHERE ${shiftPlaceholders(guard, 3)}
+            AND NOT EXISTS (
+              SELECT 1 FROM tags existing
+               WHERE existing.user_id = ?1
+                 AND existing.name = json_extract(j.value, '$.name') COLLATE NOCASE
+            )
          ON CONFLICT(user_id, name) DO NOTHING`,
       )
       .bind(userId, now, tagRows, ...guardValues),
@@ -145,9 +150,17 @@ export function buildNoteDerivedStatements(
       .prepare(
         `INSERT INTO note_tags (note_id, tag_id)
          SELECT ?1, t.id
-           FROM tags t JOIN json_each(?2) AS j
-             ON t.name = json_extract(j.value, '$.name')
-          WHERE t.user_id = ?3 AND ${shiftPlaceholders(guard, 3)}
+           FROM json_each(?2) AS j
+           JOIN tags t ON t.id = (
+             SELECT candidate.id FROM tags candidate
+              WHERE candidate.user_id = ?3
+                AND candidate.name = json_extract(j.value, '$.name') COLLATE NOCASE
+              ORDER BY CASE WHEN candidate.name = json_extract(j.value, '$.name') THEN 0 ELSE 1 END,
+                       candidate.created_at ASC,
+                       candidate.id ASC
+              LIMIT 1
+           )
+          WHERE ${shiftPlaceholders(guard, 3)}
          ON CONFLICT DO NOTHING`,
       )
       .bind(noteId, tagRows, userId, ...guardValues),

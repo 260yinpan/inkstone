@@ -1095,6 +1095,14 @@ export const useNotes = create<NotesState>((set, get) => ({
         }
     },
 }));
+
+type TagCacheState = Pick<NotesState, 'notes' | 'tags'>;
+
+export function setOptimisticTagCache(update: (state: NotesState) => Partial<TagCacheState>) {
+    tagStateGeneration++;
+    useNotes.setState((state) => update(state));
+}
+
 async function collectFullSync(first: SyncResponse): Promise<SyncResponse> {
     const notes = new Map(first.notes.map((note) => [note.id, note]));
     let page = first;

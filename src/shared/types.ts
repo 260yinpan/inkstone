@@ -133,6 +133,7 @@ export interface Folder {
   parentId: string | null
   name: string
   icon: string | null
+  color: string | null
   position: number
   createdAt: number
   updatedAt: number

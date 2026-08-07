@@ -12,6 +12,7 @@ import { IconButton, Kbd } from '../../components/primitives';
 import { Tooltip, useDialogFocus, useEscape, useLockScroll } from '../../components/overlay';
 import { useUi } from '../../store/ui';
 import { useNotes } from '../../store/notes';
+import { folderPathLabel, openFolderView } from '../../lib/folders';
 import { useSession } from '../../store/session';
 import { t, useLocale } from "../../lib/i18n";
 interface Item {
@@ -317,20 +318,28 @@ export function CommandPalette({ onClose }: {
             run: () => openView('tag', { tag: item.name }),
         }));
         const folderCounts = new Map<string, number>();
+        const folderById = new Map(folders.map((folder) => [folder.id, folder]));
         for (const note of Object.values(notes)) {
             if (!note.folderId || note.deletedAt || note.isArchived)
                 continue;
-            folderCounts.set(note.folderId, (folderCounts.get(note.folderId) ?? 0) + 1);
+            let currentId: string | null = note.folderId;
+            const seenFolders = new Set<string>();
+            while (currentId && !seenFolders.has(currentId)) {
+                seenFolders.add(currentId);
+                folderCounts.set(currentId, (folderCounts.get(currentId) ?? 0) + 1);
+                currentId = folderById.get(currentId)?.parentId ?? null;
+            }
         }
-        const matchedFolders = fuzzyFilter(folders, text, (f) => f.name, 5).map<Item>(({ item, match }) => ({
-            id: `folder-${item.id}`,
+        const folderChoices = folders.map((folder) => ({ folder, path: folderPathLabel(folders, folder.id) }));
+        const matchedFolders = fuzzyFilter(folderChoices, text, (choice) => choice.path, 5).map<Item>(({ item: choice, match }) => ({
+            id: `folder-${choice.folder.id}`,
             kind: 'folder',
-            label: item.name,
-            detail: t("common.value0_notes", { value0: folderCounts.get(item.id) ?? 0 }),
+            label: choice.path,
+            detail: t("common.value0_notes", { value0: folderCounts.get(choice.folder.id) ?? 0 }),
             icon: <FolderPlus size={14}/>,
             group: t("navigation.folder"),
             score: match.score,
-            run: () => openView('folder', { folderId: item.id }),
+            run: () => openFolderView(folders, choice.folder.id),
         }));
         const all = [...matchedCommands, ...matchedNotes, ...fullText, ...matchedTags, ...matchedFolders];
         if (!all.length) {

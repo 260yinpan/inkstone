@@ -470,6 +470,7 @@ function isFolder(value: unknown): value is Folder {
     isNullableString(value.parentId) &&
     typeof value.name === 'string' &&
     isNullableString(value.icon) &&
+    (value.color === undefined || isNullableString(value.color)) &&
     isFiniteNumber(value.position) &&
     isFiniteNumber(value.createdAt) &&
     isFiniteNumber(value.updatedAt) &&

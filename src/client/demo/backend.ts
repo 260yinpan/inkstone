@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { APP_VERSION, LIMITS, mergeSettingsPatch } from '@shared/constants'
 import { duplicateNoteTitle } from '@shared/text-utils'
+import { organizerColorOrNull } from '@shared/organizer-colors'
 import {
   deriveExcerpt,
   deriveTitle,
@@ -322,6 +323,7 @@ export function createDemoBackend(): DemoBackend {
       parentId,
       name,
       icon: typeof body.icon === 'string' ? body.icon : null,
+      color: organizerColorOrNull(body.color),
       position: (siblings.at(-1)?.position ?? 0) + 1000,
       createdAt: now,
       updatedAt: now,
@@ -361,6 +363,7 @@ export function createDemoBackend(): DemoBackend {
       name,
       parentId,
       icon: body.icon === null || typeof body.icon === 'string' ? body.icon : current.icon,
+      color: 'color' in body ? organizerColorOrNull(body.color) : current.color,
       updatedAt: Date.now(),
     }
     const shouldPlace = 'beforeId' in body || parentId !== current.parentId
@@ -1034,6 +1037,7 @@ function importBundle(state: DemoState, value: unknown, result: ImportResult): v
       parentId: raw.parentId ? folderMap.get(raw.parentId) ?? null : null,
       name: typeof raw.name === 'string' ? raw.name : 'Imported folder',
       icon: typeof raw.icon === 'string' ? raw.icon : null,
+      color: organizerColorOrNull(raw.color),
       position: Number.isFinite(raw.position) ? raw.position : state.folders.size + 1,
       createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : Date.now(),
       updatedAt: Date.now(),

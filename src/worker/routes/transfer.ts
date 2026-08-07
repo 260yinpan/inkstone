@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
 import { countText, deriveExcerpt, deriveTitle, splitFrontMatter } from '@shared/markdown-utils'
 import { truncateText, utf8ByteLength } from '@shared/text-utils'
+import { organizerColorOrNull } from '@shared/organizer-colors'
 import type { ExportBundle, ImportResult } from '@shared/types'
 import {
   persistAttachment,
@@ -259,6 +260,7 @@ interface SourceFolder {
   parentId: string | null
   name: string
   icon: string | null
+  color: string | null
   position?: number
   createdAt?: number
   updatedAt?: number
@@ -266,6 +268,7 @@ interface SourceFolder {
 
 interface FolderImportMetadata {
   icon: string | null
+  color: string | null
   position?: number
   createdAt?: number
   updatedAt?: number
@@ -318,6 +321,7 @@ async function importBundle(
       name,
       parentId: sourceKey(rawFolder.parentId) ?? null,
       icon: typeof rawFolder.icon === 'string' ? truncateText(rawFolder.icon, 8) || null : null,
+      color: organizerColorOrNull(rawFolder.color),
       position: finiteNumber(rawFolder.position),
       createdAt: validTimestamp(rawFolder.createdAt),
       updatedAt: validTimestamp(rawFolder.updatedAt),
@@ -1176,11 +1180,12 @@ async function ensureFolderPath(
       : now
     const position = isFinal ? finiteNumber(finalMetadata?.position) ?? now : now
     const icon = isFinal ? finalMetadata?.icon ?? null : null
+    const color = isFinal ? finalMetadata?.color ?? null : null
     const insert = db.prepare(
       `INSERT OR IGNORE INTO folders
-         (id, user_id, parent_id, name, icon, position, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
-    ).bind(id, userId, parentId, segment, icon, position, createdAt, updatedAt)
+         (id, user_id, parent_id, name, icon, color, position, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+    ).bind(id, userId, parentId, segment, icon, color, position, createdAt, updatedAt)
     const [created] = await db.batch([
       insert,
       db.prepare(

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDown, ArrowUp, ChevronRight, Clock, CornerUpLeft, FilePlus2, FileText, FolderClosed, FolderOpen, FolderPlus, Hash, Inbox, LogOut, Moon, MoreHorizontal, PanelLeft, PanelLeftClose, Settings, Star, Sun, Trash2, Waypoints, } from 'lucide-react';
+import { Archive, ArrowDown, ArrowUp, ChevronRight, Clock, CornerUpLeft, FilePlus2, FileText, FolderClosed, FolderInput, FolderOpen, FolderPlus, Hash, Inbox, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Settings, Star, Sun, Trash2, Waypoints, } from 'lucide-react';
 import { LIMITS } from '@shared/constants';
 import type { ViewKind } from '@shared/types';
 import { compareTagNames } from '@shared/markdown-utils';
@@ -10,6 +10,8 @@ import { switchThemeWithTransition, useUi } from '../../store/ui';
 import { useSession } from '../../store/session';
 import { useUpdate } from '../../store/update';
 import { useFolderTree, useNavigationCounts, useNotes, type FolderNode } from '../../store/notes';
+import { folderDescendantIds, folderPath, folderPathLabel, openFolderView } from '../../lib/folders';
+import { FolderAppearance, FolderPicker } from '../folders/FolderPicker';
 import { TagManager } from '../tags/TagManager';
 import { t } from "../../lib/i18n";
 export function Sidebar({ collapsed = false, onCollapse, }: {
@@ -237,14 +239,16 @@ function ViewItem({ icon, label, view, count, active, onSelect, }: {
 }
 function FolderSection() {
     const tree = useFolderTree();
+    const folders = useNotes((s) => s.folders ?? []);
     const createFolder = useNotes((s) => s.createFolder);
     const patchFolder = useNotes((s) => s.patchFolder);
     const expandFolder = useUi((s) => s.expandFolder);
-    const openView = useUi((s) => s.openView);
     const [creating, setCreating] = useState(false);
     const creatingRef = useRef(false);
     const movingIdsRef = useRef(new Set<string>());
     const [renamingId, setRenamingId] = useState<string | null>(null);
+    const [movingId, setMovingId] = useState<string | null>(null);
+    const [appearanceId, setAppearanceId] = useState<string | null>(null);
     const [rootDropping, setRootDropping] = useState(false);
     const create = (parentId: string | null) => {
         if (creatingRef.current)
@@ -269,7 +273,7 @@ function FolderSection() {
                 currentUi.activeNoteId === startingNavigation.activeNoteId) {
                 if (parentId)
                     expandFolder(parentId);
-                openView('folder', { folderId });
+                openFolderView(useNotes.getState().folders ?? [], folderId);
                 setRenamingId(folderId);
             }
         }
@@ -298,7 +302,23 @@ function FolderSection() {
             movingIdsRef.current.delete(id);
         }
     };
-    return (<section className={cn('mt-4 rounded-[var(--r-md)]', rootDropping && 'ring-1 ring-[var(--accent)]')} onDragOver={(event) => {
+    const movingFolder = movingId ? folders.find((folder) => folder.id === movingId) ?? null : null;
+    const appearanceFolder = appearanceId ? folders.find((folder) => folder.id === appearanceId) ?? null : null;
+    const excludedMoveTargets = useMemo(() => {
+        if (!movingId)
+            return undefined;
+        const excluded = folderDescendantIds(folders, movingId);
+        const movingDepth = Math.max(0, folderPath(folders, movingId).length - 1);
+        const relativeSubtreeDepth = Math.max(0, ...[...excluded].map((id) => Math.max(0, folderPath(folders, id).length - 1 - movingDepth)));
+        for (const candidate of folders) {
+            const movedRootDepth = folderPath(folders, candidate.id).length;
+            if (movedRootDepth + relativeSubtreeDepth >= LIMITS.folderDepthMax)
+                excluded.add(candidate.id);
+        }
+        return excluded;
+    }, [folders, movingId]);
+    return (<>
+      <section className={cn('mt-4 rounded-[var(--r-md)]', rootDropping && 'ring-1 ring-[var(--accent)]')} onDragOver={(event) => {
             if (!event.dataTransfer.types.includes('application/x-inkstone-folder'))
                 return;
             event.preventDefault();
@@ -325,12 +345,21 @@ function FolderSection() {
       </div>
 
       {tree.length === 0 ? (<button type="button" disabled={creating} onClick={() => void create(null)} className="mt-0.5 flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-[12px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-45 md:h-[30px]">
-          <FolderPlus size={13}/>{t("sidebar.create_first_folder")}</button>) : (<div className="mt-0.5 space-y-px">
-          {tree.map((node, index) => (<FolderRow key={node.id} node={node} siblings={tree} index={index} parentNode={null} parentSiblings={[]} onCreateChild={create} onMove={move} renamingId={renamingId} onStartRename={setRenamingId} onFinishRename={() => setRenamingId(null)}/>))}
+          <FolderPlus size={13}/>{t("sidebar.create_first_folder")}</button>) : (<div role="tree" aria-label={t("navigation.folder")} className="mt-0.5 space-y-px">
+          {tree.map((node, index) => (<FolderRow key={node.id} node={node} siblings={tree} index={index} parentNode={null} parentSiblings={[]} onCreateChild={create} onMove={move} onChooseParent={setMovingId} onEditAppearance={setAppearanceId} renamingId={renamingId} onStartRename={setRenamingId} onFinishRename={() => setRenamingId(null)}/>))}
         </div>)}
-    </section>);
+      </section>
+      <FolderPicker open={Boolean(movingFolder)} title={t("folders.choose_parent")} folders={folders} currentId={movingFolder?.parentId ?? null} excludedIds={excludedMoveTargets} onSelect={(parentId) => {
+            if (movingId)
+                void move(movingId, parentId, null);
+        }} onClose={() => setMovingId(null)}/>
+      <FolderAppearance open={Boolean(appearanceFolder)} folder={appearanceFolder} onChange={(patch) => {
+            if (appearanceId)
+                patchFolder(appearanceId, patch);
+        }} onClose={() => setAppearanceId(null)}/>
+    </>);
 }
-function FolderRow({ node, siblings, index, parentNode, parentSiblings, onCreateChild, onMove, renamingId, onStartRename, onFinishRename, }: {
+function FolderRow({ node, siblings, index, parentNode, parentSiblings, onCreateChild, onMove, onChooseParent, onEditAppearance, renamingId, onStartRename, onFinishRename, }: {
     node: FolderNode;
     siblings: FolderNode[];
     index: number;
@@ -338,6 +367,8 @@ function FolderRow({ node, siblings, index, parentNode, parentSiblings, onCreate
     parentSiblings: FolderNode[];
     onCreateChild: (parentId: string | null) => void;
     onMove: (id: string, parentId: string | null, beforeId: string | null) => boolean;
+    onChooseParent: (id: string) => void;
+    onEditAppearance: (id: string) => void;
     renamingId: string | null;
     onStartRename: (id: string) => void;
     onFinishRename: () => void;
@@ -346,10 +377,11 @@ function FolderRow({ node, siblings, index, parentNode, parentSiblings, onCreate
     const activeFolderId = useUi((s) => s.folderId);
     const expanded = useUi((s) => s.expandedFolders.includes(node.id));
     const toggleFolder = useUi((s) => s.toggleFolder);
-    const openView = useUi((s) => s.openView);
+    const folders = useNotes((s) => s.folders ?? []);
     const patchFolder = useNotes((s) => s.patchFolder);
     const deleteFolder = useNotes((s) => s.deleteFolder);
     const patchNote = useNotes((s) => s.patchNote);
+    const directNoteCount = useNotes((s) => Object.values(s.notes ?? {}).filter((note) => note.folderId === node.id).length);
     const [dropState, setDropState] = useState<'none' | 'before' | 'inside' | 'after'>('none');
     const menu = useContextMenu();
     const buttonRef = useRef<HTMLDivElement>(null);
@@ -380,11 +412,11 @@ function FolderRow({ node, siblings, index, parentNode, parentSiblings, onCreate
             return;
         removingRef.current = true;
         try {
-            const hasContent = node.totalNotes > 0 || hasChildren;
+            const hasContent = directNoteCount > 0 || hasChildren;
             const ok = await confirm({
                 title: t("sidebar.delete_folder_value0", { value0: node.name }),
                 description: hasContent
-                    ? t("sidebar.the_value0_notes_inside_move_up_one_level_and_are_not_deleted", { value0: node.totalNotes }) : t("sidebar.this_folder_is_empty"),
+                    ? t("folders.delete_contents_move_up", { value0: directNoteCount, value1: node.children.length }) : t("sidebar.this_folder_is_empty"),
                 confirmLabel: t("common.delete"),
                 tone: 'danger',
             });
@@ -418,12 +450,14 @@ function FolderRow({ node, siblings, index, parentNode, parentSiblings, onCreate
         { id: 'rename', label: t("sidebar.rename"), onSelect: () => onStartRename(node.id) },
         { id: 'new-note', label: t("sidebar.create_new_note_here"), icon: <FilePlus2 size={13}/>, onSelect: () => void useNotes.getState().createNote({ folderId: node.id }) },
         { id: 'new-child', label: t("sidebar.new_subfolder"), icon: <FolderPlus size={13}/>, disabled: !canCreateChild, onSelect: () => onCreateChild(node.id) },
-        { id: 'move-earlier', label: t("sidebar.move_earlier"), icon: <ArrowUp size={13}/>, disabled: index === 0, separatorBefore: true, onSelect: moveEarlier },
+        { id: 'appearance', label: t("folders.appearance"), icon: <Palette size={13}/>, onSelect: () => onEditAppearance(node.id) },
+        { id: 'move-to', label: t("folders.move_to"), icon: <FolderInput size={13}/>, separatorBefore: true, onSelect: () => onChooseParent(node.id) },
+        { id: 'move-earlier', label: t("sidebar.move_earlier"), icon: <ArrowUp size={13}/>, disabled: index === 0, onSelect: moveEarlier },
         { id: 'move-later', label: t("sidebar.move_later"), icon: <ArrowDown size={13}/>, disabled: index === siblings.length - 1, onSelect: moveLater },
         { id: 'move-out', label: t("sidebar.move_out_one_level"), icon: <CornerUpLeft size={13}/>, disabled: !parentNode, onSelect: moveOut },
         { id: 'delete', label: t("sidebar.delete_folder"), tone: 'danger', separatorBefore: true, onSelect: () => void remove() },
     ];
-    return (<div>
+    return (<div role="treeitem" aria-level={node.depth + 1} aria-expanded={hasChildren ? expanded : undefined}>
       <div ref={buttonRef} onContextMenu={(event) => {
             setMenuOpen(false);
             menu.onContextMenu(event);
@@ -484,7 +518,7 @@ function FolderRow({ node, siblings, index, parentNode, parentSiblings, onCreate
           </button>
         </Tooltip>
 
-        <span className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}>
+        <span className={cn('shrink-0', active && !node.color ? 'text-[var(--accent)]' : !node.color && 'text-[var(--text-tertiary)]')} style={{ color: node.color ?? undefined }}>
           {node.icon ? (<span className="text-[13px] leading-none">{node.icon}</span>) : expanded && hasChildren ? (<FolderOpen size={14}/>) : (<FolderClosed size={14}/>)}
         </span>
 
@@ -496,7 +530,7 @@ function FolderRow({ node, siblings, index, parentNode, parentSiblings, onCreate
                     onFinishRename();
                 }
                 e.stopPropagation();
-            }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>) : (<button type="button" aria-current={active ? 'page' : undefined} onClick={() => openView('folder', { folderId: node.id })} onDoubleClick={() => onStartRename(node.id)} className="min-w-0 flex-1 truncate py-1 text-left text-[12.5px] font-medium">
+            }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>) : (<button type="button" title={folderPathLabel(folders, node.id)} aria-current={active ? 'page' : undefined} onClick={() => openFolderView(folders, node.id)} onDoubleClick={() => onStartRename(node.id)} className="min-w-0 flex-1 truncate py-1 text-left text-[12.5px] font-medium">
             {node.name}
           </button>)}
 
@@ -516,8 +550,8 @@ function FolderRow({ node, siblings, index, parentNode, parentSiblings, onCreate
           </>)}
       </div>
 
-      {expanded && hasChildren && (<div className="space-y-px">
-          {node.children.map((child, childIndex) => (<FolderRow key={child.id} node={child} siblings={node.children} index={childIndex} parentNode={node} parentSiblings={siblings} onCreateChild={onCreateChild} onMove={onMove} renamingId={renamingId} onStartRename={onStartRename} onFinishRename={onFinishRename}/>))}
+      {expanded && hasChildren && (<div role="group" className="space-y-px">
+          {node.children.map((child, childIndex) => (<FolderRow key={child.id} node={child} siblings={node.children} index={childIndex} parentNode={node} parentSiblings={siblings} onCreateChild={onCreateChild} onMove={onMove} onChooseParent={onChooseParent} onEditAppearance={onEditAppearance} renamingId={renamingId} onStartRename={onStartRename} onFinishRename={onFinishRename}/>))}
         </div>)}
 
       <Menu anchor={buttonRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems}/>

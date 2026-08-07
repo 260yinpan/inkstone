@@ -33,6 +33,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     parent_id TEXT,
     name TEXT NOT NULL,
     icon TEXT,
+    color TEXT,
     position REAL NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -288,6 +289,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
 interface SchemaMigration {
   version: number
   statements: readonly string[]
+  skipIfColumnExists?: { table: string; column: string }
 }
 
 const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
@@ -376,6 +378,13 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON fts_index_queue(user_id, created_at, note_id)`,
     ],
   },
+  {
+    version: 5,
+    skipIfColumnExists: { table: 'folders', column: 'color' },
+    statements: [
+      `ALTER TABLE folders ADD COLUMN color TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -399,7 +408,7 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   app_meta: ['key', 'value'],
   schema_migrations: ['version', 'applied_at'],
   users: ['id', 'username', 'password_hash', 'login', 'name', 'avatar_url', 'role', 'settings', 'created_at', 'last_seen_at'],
-  folders: ['id', 'user_id', 'parent_id', 'name', 'icon', 'position', 'created_at', 'updated_at', 'deleted_at'],
+  folders: ['id', 'user_id', 'parent_id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at', 'deleted_at'],
   notes: ['id', 'user_id', 'folder_id', 'title', 'title_key', 'content', 'excerpt', 'rev', 'word_count', 'char_count', 'is_pinned', 'is_starred', 'is_archived', 'position', 'content_hash', 'created_at', 'updated_at', 'deleted_at'],
   tags: ['id', 'user_id', 'name', 'color', 'created_at'],
   note_tags: ['note_id', 'tag_id'],
@@ -551,7 +560,13 @@ async function applyMigrations(db: D1Database): Promise<void> {
 
   for (const migration of SCHEMA_MIGRATIONS) {
     if (applied.has(migration.version)) continue
-    const statements = migration.statements.map((statement) => db.prepare(statement))
+    let migrationStatements = migration.statements
+    if (migration.skipIfColumnExists) {
+      const { table, column } = migration.skipIfColumnExists
+      const { results: columns } = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>()
+      if (columns.some((entry) => entry.name === column)) migrationStatements = []
+    }
+    const statements = migrationStatements.map((statement) => db.prepare(statement))
     statements.push(
       db.prepare(`INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?1, ?2)`)
         .bind(migration.version, Date.now()),

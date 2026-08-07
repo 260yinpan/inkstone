@@ -282,13 +282,14 @@ export const api = {
 
   folders: {
     list: () => request<{ folders: Folder[] }>('/api/folders'),
-    create: (body: { id?: string; name?: string; parentId?: string | null; icon?: string | null }) =>
+    create: (body: { id?: string; name?: string; parentId?: string | null; icon?: string | null; color?: string | null }) =>
       request<Folder>('/api/folders', { method: 'POST', body }),
     patch: (id: string, body: {
       name?: string
       parentId?: string | null
       beforeId?: string | null
       icon?: string | null
+      color?: string | null
     }) =>
       request<Folder>(`/api/folders/${id}`, { method: 'PATCH', body }),
     remove: (id: string, strategy: 'move-up' | 'delete' = 'move-up') =>

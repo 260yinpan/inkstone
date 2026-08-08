@@ -190,6 +190,8 @@ export async function webdavTest(
     const checkUrl = childUrl(base, checkPath)
     const payload = new TextEncoder().encode(`inkstone ${new Date().toISOString()}`)
     let written = false
+    let readWriteSucceeded = false
+    let primaryFailure: TestConnectionResult | null = null
     try {
       const put = await webdavFetch(checkUrl, {
         method: 'PUT',
@@ -212,30 +214,38 @@ export async function webdavTest(
       }, base.origin)
       if (!get.ok) {
         await get.body?.cancel().catch(() => {})
-        return { ok: false, message: `Write succeeded but read failed: HTTP ${get.status}` }
+        primaryFailure = { ok: false, message: `Write succeeded but read failed: HTTP ${get.status}` }
+        return primaryFailure
       }
       const downloaded = await readResponseBytesWithinLimit(get, 1024)
       if (!bytesEqual(downloaded, payload)) {
-        return { ok: false, message: 'The data read after writing did not match. Check the WebDAV gateway or proxy' }
+        primaryFailure = { ok: false, message: 'The data read after writing did not match. Check the WebDAV gateway or proxy' }
+        return primaryFailure
       }
 
+      readWriteSucceeded = true
       return { ok: true, message: 'Connection succeeded with read and write access', latencyMs: Date.now() - started }
     } finally {
       if (written) {
-        await webdavFetch(checkUrl, {
-          method: 'DELETE',
-          headers: { Authorization: auth, 'User-Agent': BACKUP_USER_AGENT },
-          signal: AbortSignal.timeout(5_000),
-        }, base.origin)
-          .then(async (removed) => {
-            await removed.body?.cancel().catch(() => {})
-            if (!removed.ok && removed.status !== 404) {
-              console.warn(`[inkstone] WebDAV test file cleanup returned HTTP ${removed.status}`)
-            }
-          })
-          .catch((error) => {
-            console.warn('[inkstone] WebDAV test file cleanup failed:', friendlyError(error))
-          })
+        let cleanupError: Error | null = null
+        try {
+          const removed = await webdavFetch(checkUrl, {
+            method: 'DELETE',
+            headers: { Authorization: auth, 'User-Agent': BACKUP_USER_AGENT },
+            signal: AbortSignal.timeout(5_000),
+          }, base.origin)
+          await removed.body?.cancel().catch(() => {})
+          if (!removed.ok && removed.status !== 404) {
+            cleanupError = new Error(`The test file could not be removed: HTTP ${removed.status}`)
+          }
+        } catch (error) {
+          cleanupError = new Error(`The test file could not be removed: ${friendlyError(error)}`)
+        }
+        if (cleanupError) {
+          if (readWriteSucceeded) throw cleanupError
+          if (primaryFailure) primaryFailure.message += `. ${cleanupError.message}`
+          console.warn('[inkstone] WebDAV test file cleanup failed:', cleanupError.message)
+        }
       }
     }
   } catch (err) {

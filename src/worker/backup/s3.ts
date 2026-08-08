@@ -105,6 +105,8 @@ export async function s3Test(
     const url = objectUrl(config, key)
     const payload = new TextEncoder().encode(`inkstone ${new Date().toISOString()}`)
     let written = false
+    let readWriteSucceeded = false
+    let primaryFailure: TestConnectionResult | null = null
     try {
       const put = await aws.fetch(url, {
         method: 'PUT',
@@ -119,13 +121,16 @@ export async function s3Test(
 
       const get = await aws.fetch(url, { method: 'GET', signal, redirect: 'manual' })
       if (!get.ok) {
-        return { ok: false, message: `Write succeeded but read failed: ${await describeError(get, key)}` }
+        primaryFailure = { ok: false, message: `Write succeeded but read failed: ${await describeError(get, key)}` }
+        return primaryFailure
       }
       const downloaded = await readResponseBytesWithinLimit(get, 1024)
       if (!bytesEqual(downloaded, payload)) {
-        return { ok: false, message: 'The data read after writing did not match. Check the storage gateway or proxy' }
+        primaryFailure = { ok: false, message: 'The data read after writing did not match. Check the storage gateway or proxy' }
+        return primaryFailure
       }
 
+      readWriteSucceeded = true
       return {
         ok: true,
         message: 'Connection succeeded with read and write access',
@@ -133,20 +138,25 @@ export async function s3Test(
       }
     } finally {
       if (written) {
-        await aws.fetch(url, {
-          method: 'DELETE',
-          signal: AbortSignal.timeout(5_000),
-          redirect: 'manual',
-        })
-          .then(async (removed) => {
-            await removed.body?.cancel().catch(() => {})
-            if (!removed.ok && removed.status !== 404) {
-              console.warn(`[inkstone] S3 test object cleanup returned HTTP ${removed.status}`)
-            }
+        let cleanupError: Error | null = null
+        try {
+          const removed = await aws.fetch(url, {
+            method: 'DELETE',
+            signal: AbortSignal.timeout(5_000),
+            redirect: 'manual',
           })
-          .catch((error) => {
-            console.warn('[inkstone] S3 test object cleanup failed:', friendlyError(error))
-          })
+          await removed.body?.cancel().catch(() => {})
+          if (!removed.ok && removed.status !== 404) {
+            cleanupError = new Error(`The test file could not be removed: HTTP ${removed.status}`)
+          }
+        } catch (error) {
+          cleanupError = new Error(`The test file could not be removed: ${friendlyError(error)}`)
+        }
+        if (cleanupError) {
+          if (readWriteSucceeded) throw cleanupError
+          if (primaryFailure) primaryFailure.message += `. ${cleanupError.message}`
+          console.warn('[inkstone] S3 test object cleanup failed:', cleanupError.message)
+        }
       }
     }
   } catch (err) {

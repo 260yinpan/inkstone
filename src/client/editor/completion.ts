@@ -78,8 +78,6 @@ export function tagSource(getSources: () => CompletionSources) {
         const line = context.state.doc.lineAt(context.pos);
         if (from - 1 === line.from && /^#{1,6}\s/.test(line.text))
             return null;
-        if (!query && !context.explicit)
-            return null;
         const options: Completion[] = [];
         for (const tag of getSources().tags()) {
             const match = query ? fuzzyMatch(tag.name, query) : { score: tag.count, ranges: [] };

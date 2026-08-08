@@ -222,15 +222,20 @@ export async function webdavTest(
       return { ok: true, message: 'Connection succeeded with read and write access', latencyMs: Date.now() - started }
     } finally {
       if (written) {
-        const removed = await webdavFetch(checkUrl, {
+        await webdavFetch(checkUrl, {
           method: 'DELETE',
           headers: { Authorization: auth, 'User-Agent': BACKUP_USER_AGENT },
           signal: AbortSignal.timeout(5_000),
         }, base.origin)
-        await removed.body?.cancel().catch(() => {})
-        if (!removed.ok && removed.status !== 404) {
-          throw new Error(`Read and write succeeded, but the test file could not be removed: HTTP ${removed.status}`)
-        }
+          .then(async (removed) => {
+            await removed.body?.cancel().catch(() => {})
+            if (!removed.ok && removed.status !== 404) {
+              console.warn(`[inkstone] WebDAV test file cleanup returned HTTP ${removed.status}`)
+            }
+          })
+          .catch((error) => {
+            console.warn('[inkstone] WebDAV test file cleanup failed:', friendlyError(error))
+          })
       }
     }
   } catch (err) {

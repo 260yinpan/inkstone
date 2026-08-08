@@ -133,15 +133,20 @@ export async function s3Test(
       }
     } finally {
       if (written) {
-        const removed = await aws.fetch(url, {
+        await aws.fetch(url, {
           method: 'DELETE',
           signal: AbortSignal.timeout(5_000),
           redirect: 'manual',
         })
-        await removed.body?.cancel().catch(() => {})
-        if (!removed.ok && removed.status !== 404) {
-          throw new Error(`Read and write succeeded, but the test file could not be removed: HTTP ${removed.status}`)
-        }
+          .then(async (removed) => {
+            await removed.body?.cancel().catch(() => {})
+            if (!removed.ok && removed.status !== 404) {
+              console.warn(`[inkstone] S3 test object cleanup returned HTTP ${removed.status}`)
+            }
+          })
+          .catch((error) => {
+            console.warn('[inkstone] S3 test object cleanup failed:', friendlyError(error))
+          })
       }
     }
   } catch (err) {

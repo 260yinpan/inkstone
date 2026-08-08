@@ -436,10 +436,12 @@ export function Workspace({ mobileLayout = 'edit', onMobileBack, pane = 'active'
         <span className="tabular">{note.wordCount}{t("common.words")}</span>
         <span className="hidden tabular sm:inline">{note.charCount}{t("workspace.characters")}</span>
         <span className="hidden tabular md:inline">{t("common.about")}{readingMinutes(note.wordCount)}{t("common.min")}</span>
-        {noteFolder && noteFolderPath && (<button type="button" title={noteFolderPath} onClick={() => openFolderView(folders, noteFolder.id)} className="inline-flex min-w-0 max-w-40 items-center gap-1 truncate rounded px-1 py-0.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] md:max-w-48">
-            <FolderClosed size={11} className="shrink-0" style={{ color: noteFolder.color ?? undefined }}/>
-            <span className="truncate">{noteFolderPath}</span>
-          </button>)}
+        {noteFolder && noteFolderPath && (<Tooltip label={noteFolderPath} side="top">
+            <button type="button" onClick={() => openFolderView(folders, noteFolder.id)} className="inline-flex min-w-0 max-w-40 items-center gap-1 truncate rounded px-1 py-0.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] md:max-w-48">
+              <FolderClosed size={11} className="shrink-0" style={{ color: noteFolder.color ?? undefined }}/>
+              <span className="truncate">{noteFolderPath}</span>
+            </button>
+          </Tooltip>)}
         {note.tags.length > 0 && (<span className="flex min-w-0 items-center gap-0.5 overflow-hidden">
             {note.tags.slice(0, isMobile ? 2 : 4).map((name) => (<button key={name} type="button" onClick={() => useUi.getState().openView('tag', { tag: name })} className="inline-flex min-w-0 items-center gap-0.5 rounded px-1 py-0.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--accent)]">
                 <Hash size={9} className="shrink-0" style={{ color: tagColors.get(name) ?? undefined }}/><span className="truncate">{name}</span>

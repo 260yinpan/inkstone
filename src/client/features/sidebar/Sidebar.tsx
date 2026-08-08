@@ -528,9 +528,11 @@ function FolderRow({ node, siblings, index, parentNode, parentSiblings, onCreate
                     onFinishRename();
                 }
                 e.stopPropagation();
-            }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>) : (<button type="button" title={folderPathLabel(folders, node.id)} aria-current={active ? 'page' : undefined} onClick={() => openFolderView(folders, node.id)} onDoubleClick={() => onStartRename(node.id)} className="min-w-0 flex-1 truncate py-1 text-left text-[12.5px] font-medium">
-            {node.name}
-          </button>)}
+            }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>) : (<Tooltip label={folderPathLabel(folders, node.id)} side="right">
+            <button type="button" aria-current={active ? 'page' : undefined} onClick={() => openFolderView(folders, node.id)} onDoubleClick={() => onStartRename(node.id)} className="min-w-0 flex-1 truncate py-1 text-left text-[12.5px] font-medium">
+              {node.name}
+            </button>
+          </Tooltip>)}
 
         {!renaming && (<>
             <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)] transition-opacity group-hover:opacity-0">

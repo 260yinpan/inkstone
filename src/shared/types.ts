@@ -51,6 +51,7 @@ export interface UpdateCheckResponse {
 export type ThemePref = 'light' | 'dark' | 'system'
 export type AppLocale = 'zh-CN' | 'en-US'
 export type AccentName = 'cinnabar' | 'indigo' | 'celadon' | 'amber' | 'terracotta' | 'wisteria' | 'graphite'
+export type BackgroundName = 'paper' | 'white'
 export type UiDensity = 'comfortable' | 'compact'
 export type ProseFont = 'sans' | 'serif'
 export type ProseWidth = 'narrow' | 'normal' | 'wide' | 'full'
@@ -61,6 +62,7 @@ export interface AppearanceSettings {
   language: AppLocale
   theme: ThemePref
   accent: AccentName
+  background: BackgroundName
   density: UiDensity
   proseFont: ProseFont
   proseSize: number

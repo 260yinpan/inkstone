@@ -221,7 +221,7 @@ backupRoutes.get('/runs', async (c) => {
 
 const OUTBOUND_BUDGETS = {
   test: { maxAttempts: 20, windowMs: 10 * 60 * 1000, lockMs: 10 * 60 * 1000 },
-  run: { maxAttempts: 30, windowMs: 60 * 60 * 1000, lockMs: 15 * 60 * 1000 },
+  run: { maxAttempts: 30, windowMs: 60 * 60 * 1000, lockMs: 60 * 60 * 1000 },
 } as const
 
 async function enforceOutboundBudget(

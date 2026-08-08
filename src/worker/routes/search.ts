@@ -368,10 +368,10 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
   const centerId = rawCenter && isValidId(rawCenter) ? rawCenter : null
   const depth = clampInt(c.req.query('depth'), 1, 3, 1)
   const limit = clampInt(c.req.query('limit'), 50, 600, 350)
-  const query = truncateText((c.req.query('q') ?? '').trim(), 200)
+  const query = (c.req.query('q') ?? '').trim()
   const rawFolderId = (c.req.query('folderId') ?? '').trim()
   const folderId = rawFolderId && isValidId(rawFolderId) ? rawFolderId : ''
-  const tag = truncateText((c.req.query('tag') ?? '').trim(), LIMITS.tagNameMaxLength)
+  const tag = (c.req.query('tag') ?? '').trim()
   const includeOrphans = c.req.query('includeOrphans') !== '0'
   const includeUnresolved = c.req.query('includeUnresolved') === '1'
 
@@ -380,6 +380,12 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
   }
   if (rawFolderId && !folderId) {
     throw new ApiError(400, 'bad_request', 'The folder id is not a valid folder id')
+  }
+  if (query.length > 200) {
+    throw new ApiError(400, 'bad_request', 'The graph search query cannot exceed 200 characters')
+  }
+  if (tag.length > LIMITS.tagNameMaxLength) {
+    throw new ApiError(400, 'bad_request', `The graph tag cannot exceed ${LIMITS.tagNameMaxLength} characters`)
   }
   if (mode === 'local' && !centerId) {
     throw new ApiError(400, 'bad_request', 'A center note is required for the local graph')

@@ -298,6 +298,8 @@ export const api = {
 
   tags: {
     list: () => request<{ tags: Tag[] }>('/api/tags'),
+    create: (body: { id?: string; name: string; color?: string | null }) =>
+      request<Tag>('/api/tags', { method: 'POST', body }),
     patch: (id: string, body: { name?: string; color?: string | null }) =>
       request<Tag | { ok: true; renamed: number }>(`/api/tags/${id}`, { method: 'PATCH', body }),
     remove: (id: string) =>

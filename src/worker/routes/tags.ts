@@ -2,13 +2,14 @@ import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { LIMITS } from '@shared/constants'
 import { countText, deriveExcerpt, replaceTagInContent } from '@shared/markdown-utils'
+import { organizerColorOrNull } from '@shared/organizer-colors'
 import { utf8ByteLength } from '@shared/text-utils'
 import type { AppBindings } from '../env'
 import { toTag, type TagRow } from '../db/rows'
 import { buildNoteDerivedStatements } from '../db/writes'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
-import { newId } from '../lib/id'
+import { isValidId, newId } from '../lib/id'
 import { broadcastCursor, scheduleFtsDrain } from '../lib/notify'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
@@ -36,6 +37,54 @@ tagsRoutes.get('/', async (c) => {
     .bind(c.get('userId'))
     .all<TagRow>()
   return c.json({ tags: results.map(toTag) })
+})
+
+tagsRoutes.post('/', async (c) => {
+  const userId = c.get('userId')
+  const body = await readJson<{ id?: string; name?: string; color?: string | null }>(
+    c,
+    JSON_BODY_LIMITS.small,
+  )
+  if (typeof body.name !== 'string') throw ApiError.badRequest('name must be a string')
+  if (body.id !== undefined && !isValidId(body.id)) {
+    throw ApiError.badRequest('id must be a valid tag id')
+  }
+  if (body.color !== undefined && body.color !== null && !organizerColorOrNull(body.color)) {
+    throw ApiError.badRequest('Tag color is not supported')
+  }
+  const name = body.name.trim().replace(/^#+/, '')
+  if (!name) throw ApiError.badRequest('Tag name cannot be empty')
+  if (name.length > LIMITS.tagNameMaxLength) throw ApiError.badRequest('Tag name is too long')
+  if (/[\s#]/.test(name)) throw ApiError.badRequest('Tag names cannot contain spaces or #')
+
+  const id = body.id ?? newId()
+  if (body.id) {
+    const existing = await loadTag(c.env.DB, userId, id)
+    if (existing) return c.json(existing)
+    const collision = await c.env.DB.prepare(`SELECT user_id FROM tags WHERE id = ?1`)
+      .bind(id)
+      .first<{ user_id: string }>()
+    if (collision) throw ApiError.conflict('This tag id is already in use')
+  }
+  const duplicate = await c.env.DB.prepare(
+    `SELECT id FROM tags WHERE user_id = ?1 AND name = ?2 COLLATE NOCASE LIMIT 1`,
+  ).bind(userId, name).first<{ id: string }>()
+  if (duplicate) throw ApiError.conflict('A tag with this name already exists')
+
+  const now = Date.now()
+  const insert = c.env.DB.prepare(
+    `INSERT INTO tags (id, user_id, name, color, is_manual, created_at)
+     VALUES (?1, ?2, ?3, ?4, 1, ?5)`,
+  ).bind(id, userId, name, organizerColorOrNull(body.color), now)
+  const change = c.env.DB.prepare(
+    `INSERT INTO changes (user_id, entity, entity_id, op, at)
+     SELECT ?1, 'tag', ?2, 'upsert', ?3
+      WHERE EXISTS (SELECT 1 FROM tags WHERE id = ?2 AND user_id = ?1)`,
+  ).bind(userId, id, now)
+  const [created] = await c.env.DB.batch([insert, change])
+  if (!created?.meta.changes) throw ApiError.conflict('A tag with this name already exists')
+  await broadcastCursor(c)
+  return c.json((await loadTag(c.env.DB, userId, id))!, 201)
 })
 
 tagsRoutes.patch('/:id', async (c) => {
@@ -81,14 +130,15 @@ tagsRoutes.patch('/:id', async (c) => {
         WHERE id = ?1 AND user_id = ?2 AND name = ?3)`
       const statements = [
         c.env.DB.prepare(
-          `INSERT INTO tags (id, user_id, name, color, created_at)
+          `INSERT INTO tags (id, user_id, name, color, is_manual, created_at)
            SELECT ?4, ?2, ?5,
                   CASE WHEN ?6 = 1 THEN ?7 ELSE source.color END,
-                  ?8
+                  1, ?8
              FROM tags source
             WHERE source.id = ?1 AND source.user_id = ?2 AND source.name = ?3
            ON CONFLICT(user_id, name) DO UPDATE SET
-             color = CASE WHEN ?6 = 1 THEN ?7 ELSE COALESCE(tags.color, excluded.color) END`,
+             color = CASE WHEN ?6 = 1 THEN ?7 ELSE COALESCE(tags.color, excluded.color) END,
+             is_manual = 1`,
         ).bind(id, userId, tag.name, targetId, destinationName, explicitColor, color, now),
         c.env.DB.prepare(
           `INSERT OR IGNORE INTO note_tags (note_id, tag_id)
@@ -133,7 +183,8 @@ tagsRoutes.patch('/:id', async (c) => {
   if (color !== tag.color) {
     const now = Date.now()
     const update = c.env.DB.prepare(
-      `UPDATE tags SET color = ?1 WHERE id = ?2 AND user_id = ?3 AND name = ?4 AND color IS ?5`,
+      `UPDATE tags SET color = ?1, is_manual = 1
+        WHERE id = ?2 AND user_id = ?3 AND name = ?4 AND color IS ?5`,
     ).bind(color, id, userId, tag.name, tag.color)
     const change = c.env.DB.prepare(
       `INSERT INTO changes (user_id, entity, entity_id, op, at)
@@ -194,6 +245,19 @@ tagsRoutes.delete('/:id', async (c) => {
   scheduleFtsDrain(c)
   return c.json({ ok: true, affected: rewrite.rewritten })
 })
+
+async function loadTag(
+  db: D1Database,
+  userId: string,
+  id: string,
+): Promise<ReturnType<typeof toTag> | null> {
+  const row = await db.prepare(
+    `SELECT ${TAG_SELECT} FROM tags t
+      ${TAG_COUNT_JOIN}
+     WHERE t.id = ?2 AND t.user_id = ?1`,
+  ).bind(userId, id).first<TagRow>()
+  return row ? toTag(row) : null
+}
 
 interface TagRewriteResult {
   rewritten: number

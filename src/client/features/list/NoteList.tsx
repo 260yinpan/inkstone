@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Archive, ArrowDownWideNarrow, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, MoreHorizontal, Pin, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, } from 'lucide-react';
 import type { NoteSummary, SortKey, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
-import { shortTime, groupLabel } from '../../lib/time';
+import { groupLabel } from '../../lib/time';
 import { useNow } from '../../lib/hooks';
 import { fuzzyFilter, splitByRanges } from '../../lib/fuzzy';
 import { useBreakpoint } from '../../lib/hooks';
@@ -54,7 +54,7 @@ export function NoteList() {
     const sortButtonRef = useRef<HTMLButtonElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const now = useNow();
-    const tagColors = useMemo(() => new Map(tags.map((item) => [item.name, item.color])), [tags]);
+    const tagColors = useMemo(() => new Map((tags ?? []).map((item) => [item.name, item.color])), [tags]);
 
     useEffect(() => setFilter(''), [view, folderId, tag]);
     const title = useMemo(() => {
@@ -200,7 +200,7 @@ export function NoteList() {
                   {group.label}
                 </div>)}
               <div role="presentation" className="space-y-px">
-                {group.items.map(({ note, ranges }) => (<NoteRow key={note.id} note={note} highlight={ranges} density={density} now={now} tagColors={tagColors} onRangeSelect={selectRange}/>))}
+                {group.items.map(({ note, ranges }) => (<NoteRow key={note.id} note={note} highlight={ranges} density={density} tagColors={tagColors} onRangeSelect={selectRange}/>))}
               </div>
             </div>)))}
       </div>
@@ -210,14 +210,13 @@ export function NoteList() {
       <Menu anchor={sortButtonRef} open={sortMenuOpen} onClose={() => setSortMenuOpen(false)} items={sortItems} align="end"/>
     </section>);
 }
-const NoteRow = memo(function NoteRow({ note, highlight, density, now, tagColors, onRangeSelect, }: {
+const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, onRangeSelect, }: {
     note: NoteSummary;
     highlight: [
         number,
         number
     ][];
     density: 'comfortable' | 'compact';
-    now: number;
     tagColors: Map<string, string | null>;
     onRangeSelect: (noteId: string) => void;
 }) {
@@ -361,7 +360,6 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, now, tagColors
             },
         ];
     const titleParts = splitByRanges(note.title || t("common.untitled_note"), highlight);
-    const folderLabel = note.folderId ? folderPathLabel(folders, note.folderId) : '';
     return (<>
       <div id={`note-option-${note.id}`} role="option" aria-selected={active || selected} tabIndex={-1} data-note-id={note.id} draggable style={{ contentVisibility: 'auto', containIntrinsicSize: density === 'compact' ? 'auto 42px' : 'auto 72px' }} onDragStart={(e) => {
             e.dataTransfer.setData('application/x-inkstone-note', note.id);
@@ -410,25 +408,11 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, now, tagColors
                 {note.excerpt}
               </p>)}
 
-            <div className="mt-1.5 flex items-center gap-1.5 text-[10.5px] text-[var(--text-quaternary)]">
-              <span className="shrink-0 tabular">
-                {shortTime(note.deletedAt ?? note.updatedAt, now)}
-              </span>
-              {note.wordCount > 0 && (<>
-                  <span className="opacity-50">·</span>
-                  <span className="shrink-0 tabular">{note.wordCount}{t("common.words")}</span>
-                </>)}
-              {folderLabel && density === 'comfortable' && (<>
-                  <span className="opacity-50">·</span>
-                  <span title={folderLabel} className="min-w-0 truncate text-[var(--text-tertiary)]">{folderLabel}</span>
-                </>)}
-              {note.tags.length > 0 && density === 'comfortable' && (<span className="flex min-w-0 items-center gap-1 truncate">
-                  <span className="opacity-50">·</span>
-                  {note.tags.slice(0, 3).map((t) => (<span key={t} className="truncate text-[var(--text-tertiary)]" style={{ color: tagColors.get(t) ?? undefined }}>
-                      #{t}
-                    </span>))}
-                </span>)}
-            </div>
+            {note.tags.length > 0 && density === 'comfortable' && (<div className="mt-1.5 flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-[10.5px] text-[var(--text-tertiary)]">
+                {note.tags.map((tag) => (<span key={tag} className="max-w-[70%] shrink-0 truncate" style={{ color: tagColors.get(tag) ?? undefined }}>
+                    #{tag}
+                  </span>))}
+              </div>)}
           </div>
         </div>
         {breakpoint === 'desktop' && (<Tooltip label={t("notes.open_to_side")} side="left">

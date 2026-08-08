@@ -415,7 +415,7 @@ notesRoutes.patch('/:id', async (c) => {
     if (contentChanged && !sameTagSet(splitTags(row.tag_names), derived.tags)) {
       statements.push(
         c.env.DB.prepare(
-          `DELETE FROM tags WHERE user_id = ?1
+          `DELETE FROM tags WHERE user_id = ?1 AND is_manual = 0
              AND ${shiftSqlPlaceholders(mutationGuard, 1)}
              AND id NOT IN (SELECT tag_id FROM note_tags)`,
         ).bind(userId, ...mutationValues),
@@ -604,7 +604,9 @@ notesRoutes.delete('/:id/purge', async (c) => {
     c.env.DB.prepare(
       `DELETE FROM notes WHERE id = ?1 AND user_id = ?2 AND rev = ?3 AND deleted_at IS NOT NULL`,
     ).bind(id, userId, row.rev),
-    c.env.DB.prepare(`DELETE FROM tags WHERE user_id = ?1 AND id NOT IN (SELECT tag_id FROM note_tags)`)
+    c.env.DB.prepare(`DELETE FROM tags
+      WHERE user_id = ?1 AND is_manual = 0
+        AND id NOT IN (SELECT tag_id FROM note_tags)`)
       .bind(userId),
   )
   const results = await c.env.DB.batch(statements)

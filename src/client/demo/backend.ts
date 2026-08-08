@@ -419,6 +419,21 @@ export function createDemoBackend(): DemoBackend {
   })
 
   app.get('/api/tags', (c) => c.json({ tags: listTags(state) }))
+  app.post('/api/tags', async (c) => {
+    const body = await jsonBody(c.req.raw)
+    const name = typeof body.name === 'string' ? body.name.trim().replace(/^#+/, '') : ''
+    if (!name || /[\s#]/.test(name) || name.length > LIMITS.tagNameMaxLength) {
+      return apiError(400, 'bad_request', 'Tag name is invalid')
+    }
+    const existing = listTags(state).find((tag) =>
+      tag.name.localeCompare(name, undefined, { sensitivity: 'base' }) === 0)
+    if (existing) return apiError(409, 'conflict', 'A tag with this name already exists')
+    const id = typeof body.id === 'string' ? body.id : newDemoId()
+    state.tagIds.set(name, id)
+    state.tagColors.set(name, body.color === null || typeof body.color === 'string' ? body.color : null)
+    state.cursor++
+    return c.json(listTags(state).find((tag) => tag.id === id)!, 201)
+  })
   app.patch('/api/tags/:id', async (c) => {
     const current = listTags(state).find((tag) => tag.id === c.req.param('id'))
     if (!current) return apiError(404, 'not_found', 'Tag not found')

@@ -39,6 +39,7 @@ interface ApiKeyRow {
 }
 
 const LAST_USED_WRITE_INTERVAL_MS = 10 * 60 * 1000
+const REVOKED_KEY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 export function generateApiKey(): string {
   const bytes = new Uint8Array(32)
@@ -111,6 +112,15 @@ export async function revokeMcpApiKey(
       WHERE id = ?2 AND user_id = ?3 AND revoked_at IS NULL`,
   ).bind(Date.now(), id, userId).run()
   return (result.meta.changes ?? 0) > 0
+}
+
+export async function purgeRevokedMcpApiKeys(
+  db: D1Database,
+  maxAgeMs = REVOKED_KEY_RETENTION_MS,
+): Promise<void> {
+  await db.prepare(
+    `DELETE FROM mcp_api_keys WHERE revoked_at IS NOT NULL AND revoked_at < ?1`,
+  ).bind(Date.now() - maxAgeMs).run()
 }
 
 /**

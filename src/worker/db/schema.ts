@@ -259,6 +259,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_mcp_api_keys_user
      ON mcp_api_keys(user_id, revoked_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_mcp_api_keys_revoked
+     ON mcp_api_keys(revoked_at)`,
 
   `CREATE TABLE IF NOT EXISTS ai_note_embeddings (
     user_id TEXT NOT NULL,
@@ -418,6 +420,13 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON attachment_cleanup(user_id, created_at, object_key)`,
     ],
   },
+  {
+    version: 10,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_mcp_api_keys_revoked
+         ON mcp_api_keys(revoked_at)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -523,6 +532,7 @@ const REQUIRED_INDEXES = [
   'idx_login_attempts_last_fail',
   'idx_mcp_operations_created',
   'idx_mcp_api_keys_user',
+  'idx_mcp_api_keys_revoked',
   'idx_ai_embeddings_indexed',
   'idx_ai_index_queue_due',
   'idx_fts_index_queue_due',

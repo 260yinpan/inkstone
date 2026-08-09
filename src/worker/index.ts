@@ -5,6 +5,7 @@ import { initializeDatabase } from './db/schema'
 import { drainAllFtsQueues } from './db/fts'
 import { drainAiIndexQueue } from './mcp/ai-search'
 import { createOAuthProvider, providerForScheduled } from './mcp/oauth'
+import { purgeRevokedMcpApiKeys } from './mcp/api-keys'
 import { purgeExpiredMcpOperations } from './mcp/operations'
 
 export { SyncHub } from './realtime/sync-hub'
@@ -34,6 +35,7 @@ export default {
         runScheduledBackups(env),
         runAttachmentCleanup(env),
         purgeExpiredMcpOperations(env.DB),
+        purgeRevokedMcpApiKeys(env.DB),
         providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
         drainAiIndexQueue(env, 300),
         drainAllFtsQueues(env.DB),

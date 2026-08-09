@@ -422,7 +422,7 @@ export const api = {
       save: (enabled: boolean) =>
         request<McpAiSearchStatus>('/api/mcp/ai-search', { method: 'PUT', body: { enabled } }),
       reindex: () =>
-        request<{ ok: true; enqueued: number }>('/api/mcp/ai-search/reindex', { method: 'POST' }),
+        request<McpAiSearchStatus & { ok: true; enqueued: number }>('/api/mcp/ai-search/reindex', { method: 'POST' }),
       clear: () =>
         request<{ ok: true; removed: number }>('/api/mcp/ai-search/clear', { method: 'POST' }),
     },

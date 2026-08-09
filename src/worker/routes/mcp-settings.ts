@@ -120,8 +120,9 @@ mcpSettingsRoutes.put('/ai-search', async (c) => {
 mcpSettingsRoutes.post('/ai-search/reindex', async (c) => {
   const userId = c.get('userId')
   const enqueued = await enqueueAllNotesForIndex(c.env.DB, userId)
+  const status = await getAiSearchStatus(c.env.DB, c.env, userId)
   c.executionCtx.waitUntil(drainAiIndexQueue(c.env, 30).catch(() => {}))
-  return c.json({ ok: true, enqueued })
+  return c.json({ ok: true, enqueued, ...status })
 })
 
 mcpSettingsRoutes.post('/ai-search/clear', async (c) => {

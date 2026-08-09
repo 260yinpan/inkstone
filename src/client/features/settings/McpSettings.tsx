@@ -240,7 +240,7 @@ export function McpSettings() {
       if (mountedRef.current) {
         setInfo((current) => current && ({
           ...current,
-          aiSearch: { ...current.aiSearch, pendingCount: current.aiSearch.pendingCount + result.enqueued },
+          aiSearch: result,
         }))
       }
       toast({ title: t('settings.mcp_ai_search_reindexed', { count: result.enqueued }), tone: 'success' })

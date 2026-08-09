@@ -181,9 +181,10 @@ notesRoutes.post('/trash/empty', async (c) => {
   )
     .bind(userId)
     .first<{ count: number }>()
-  const purged = row?.count ?? 0
+  let purged = 0
+  let deletionCursor: number | undefined
 
-  if (purged) {
+  if ((row?.count ?? 0) > 0) {
     const trashed = `SELECT id FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`
     const statements = [
       c.env.DB.prepare(`DELETE FROM note_tags WHERE note_id IN (${trashed})`).bind(userId),
@@ -235,11 +236,12 @@ notesRoutes.post('/trash/empty', async (c) => {
     )
     const results = await c.env.DB.batch(statements)
     const changeResult = results.at(-2) as D1Result<{ seq: number }> | undefined
-    await broadcastCursor(c, changeResult?.results?.[0]?.seq)
-    scheduleFtsDrain(c)
+    purged = results.at(-1)?.meta.changes ?? 0
+    deletionCursor = changeResult?.results?.at(-1)?.seq
+    if (purged) scheduleFtsDrain(c)
   }
   await pruneOrphanTags(c.env.DB, userId)
-  await broadcastCursor(c)
+  await broadcastCursor(c, deletionCursor)
   return c.json({ purged })
 })
 

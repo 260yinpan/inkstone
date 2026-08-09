@@ -189,8 +189,6 @@ export const useSession = create<SessionState>((set, get) => ({
         try {
           await useNotes.getState().flush({ immediate: true })
         } catch {
-          // If persistence itself failed, never treat an unknown journal state
-          // as empty: clearing the local database could destroy the only copy.
           pending = Math.max(1, useNotes.getState().pendingCount)
         }
         pending = Math.max(pending, useNotes.getState().pendingCount)
@@ -200,8 +198,6 @@ export const useSession = create<SessionState>((set, get) => ({
 
       window.clearTimeout(saveTimer)
       if (settingsSaveInFlight) await settingsSaveCompletion
-      // A failed in-flight save schedules a retry; run that patch once now so
-      // the pending-change confirmation reflects the latest durable state.
       window.clearTimeout(saveTimer)
       await flushSettingsPatch(set, get)
       const unsaved = pending + (pendingSettingsPatch ? 1 : 0)

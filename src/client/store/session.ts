@@ -186,9 +186,16 @@ export const useSession = create<SessionState>((set, get) => ({
       let pending = 0
       try {
         const { useNotes } = await import('../store/notes')
-        await useNotes.getState().flush({ immediate: true })
-        pending = useNotes.getState().pendingCount
+        try {
+          await useNotes.getState().flush({ immediate: true })
+        } catch {
+          // If persistence itself failed, never treat an unknown journal state
+          // as empty: clearing the local database could destroy the only copy.
+          pending = Math.max(1, useNotes.getState().pendingCount)
+        }
+        pending = Math.max(pending, useNotes.getState().pendingCount)
       } catch {
+        pending = 1
       }
 
       window.clearTimeout(saveTimer)

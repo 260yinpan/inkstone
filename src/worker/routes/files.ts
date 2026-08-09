@@ -268,19 +268,21 @@ filesRoutes.delete('/:id', requireAuth, async (c) => {
 filesRoutes.post('/prune', requireAuth, async (c) => {
   const userId = c.get('userId')
 
-  const { results: files } = await c.env.DB.prepare(
-    `SELECT id, user_id, note_id, filename, mime, size, width, height, storage, created_at
-       FROM attachments WHERE user_id = ?1`,
-  )
-    .bind(userId)
-    .all<AttachmentRow>()
+  const [filesResult, notesResult, cursorResult] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `SELECT id, user_id, note_id, filename, mime, size, width, height, storage, created_at
+         FROM attachments WHERE user_id = ?1`,
+    ).bind(userId),
+    c.env.DB.prepare(`SELECT content FROM notes WHERE user_id = ?1`).bind(userId),
+    c.env.DB.prepare(
+      `SELECT seq FROM changes WHERE user_id = ?1 AND entity = 'note'
+        ORDER BY seq DESC LIMIT 1`,
+    ).bind(userId),
+  ])
+  const files = (filesResult as D1Result<AttachmentRow>).results
   if (!files.length) return c.json({ removed: 0, freedBytes: 0 })
-
-  const { results: notes } = await c.env.DB.prepare(
-    `SELECT content FROM notes WHERE user_id = ?1`,
-  )
-    .bind(userId)
-    .all<{ content: string }>()
+  const notes = (notesResult as D1Result<{ content: string }>).results
+  const scanCursor = (cursorResult as D1Result<{ seq: number }>).results[0]?.seq ?? 0
 
   const referenced = new Set<string>()
   for (const note of notes) {
@@ -308,18 +310,19 @@ filesRoutes.post('/prune', requireAuth, async (c) => {
 
   for (const file of orphans) {
     const guard = `id = ?1 AND user_id = ?2 AND NOT EXISTS (
-      SELECT 1 FROM notes n
-       WHERE n.user_id = ?2 AND instr(n.content, attachments.id) > 0
+      SELECT 1 FROM changes c
+       WHERE c.user_id = ?2 AND c.entity = 'note' AND c.seq > ?3
     )`
     const needed = 3
     if (statements.length + needed > 100) await flush()
     statements.push(
       c.env.DB.prepare(
         `INSERT OR IGNORE INTO attachment_cleanup (object_key, user_id, created_at)
-         SELECT ?3, user_id, ?4 FROM attachments WHERE ${guard}`,
+         SELECT ?4, user_id, ?5 FROM attachments WHERE ${guard}`,
       ).bind(
         file.id,
         userId,
+        scanCursor,
         attachmentCleanupTarget(file.storage, attachmentObjectKey(file)),
         Date.now(),
       ),
@@ -332,15 +335,15 @@ filesRoutes.post('/prune', requireAuth, async (c) => {
             AND EXISTS (
               SELECT 1 FROM attachments a
                WHERE a.id = ?2 AND a.user_id = ?1 AND NOT EXISTS (
-                 SELECT 1 FROM notes n
-                  WHERE n.user_id = ?1 AND instr(n.content, a.id) > 0
+                 SELECT 1 FROM changes c
+                  WHERE c.user_id = ?1 AND c.entity = 'note' AND c.seq > ?3
                )
             )`,
-      ).bind(userId, file.id),
+      ).bind(userId, file.id, scanCursor),
     )
     operations.push({ kind: 'mapping' })
     statements.push(
-      c.env.DB.prepare(`DELETE FROM attachments WHERE ${guard}`).bind(file.id, userId),
+      c.env.DB.prepare(`DELETE FROM attachments WHERE ${guard}`).bind(file.id, userId, scanCursor),
     )
     operations.push({ kind: 'delete', file })
   }

@@ -154,6 +154,11 @@ export const localDb = {
     if (!isRecord(value) || !isPublicUser(value.user) || !isSiteInfo(value.site)) return null
     if (value.settings !== null && !isRecord(value.settings)) return null
     if (await safeGet<string>(KEY.userId) !== value.user.id) return null
+    try {
+      await bindLocalUser(value.user.id)
+    } catch {
+      return null
+    }
     return value as unknown as SessionInfo
   },
 

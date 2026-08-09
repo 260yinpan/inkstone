@@ -17,7 +17,7 @@ import { truncateText, utf8ByteLength } from '@shared/text-utils'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import type { ExportBundle, ImportResult } from '@shared/types'
 import {
-  persistAttachment,
+  persistAttachmentWithinQuota,
   rollbackPersistedAttachments,
   type PersistedAttachment,
 } from '../attachments/storage'
@@ -486,7 +486,7 @@ async function importBackupAttachment(
     return
   }
 
-  const persisted = await persistAttachment(env, {
+  const persisted = await persistAttachmentWithinQuota(env, {
     id: newId(),
     userId,
     noteId: null,
@@ -976,7 +976,7 @@ async function prepareBundleAttachments(
       reservedIds.add(destinationId)
       idMap.set(candidate.sourceId, destinationId)
 
-      const persisted = await persistAttachment(env, {
+      const persisted = await persistAttachmentWithinQuota(env, {
         id: destinationId,
         userId,
         noteId: null,
@@ -1253,7 +1253,7 @@ async function importMarkdown(
       const asset = findObsidianAsset(ctx.assets, reference, assetDir)
       if (!asset) continue
       try {
-        const persisted = await persistAttachment(c.env, {
+        const persisted = await persistAttachmentWithinQuota(c.env, {
           id: newId(),
           userId,
           noteId: null,

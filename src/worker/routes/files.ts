@@ -13,12 +13,11 @@ import {
   attachmentObjectKey,
   type AttachmentObjectStorage,
 } from '../attachments/keys'
-import { persistAttachment } from '../attachments/storage'
+import { persistAttachmentWithinQuota } from '../attachments/storage'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId, isValidSlug, newId } from '../lib/id'
 import { isInlineSafe } from '../lib/image'
-import { acquireLease } from '../lib/lease'
 import { FORM_BODY_LIMITS, readFormDataWithinLimit } from '../lib/request'
 import { consumeAttemptBudget, ThrottleError } from '../lib/throttle'
 import { shareAssetCookieName, verifyShareAssetSession } from '../lib/share-asset-session'
@@ -108,33 +107,16 @@ filesRoutes.post('/', requireAuth, async (c) => {
       .first<{ id: string }>()
     if (!owned) throw ApiError.badRequest('The associated note does not exist')
   }
-  const release = await acquireLease(
-    c.env.DB,
-    `attachment-quota:${userId}`,
-    2 * 60 * 1000,
-    'Another attachment upload is being finalized. Try again shortly',
-  )
-  let stored: Awaited<ReturnType<typeof persistAttachment>>
   const now = Date.now()
-  try {
-    const usage = await c.env.DB.prepare(
-      `SELECT COALESCE(SUM(size), 0) AS bytes FROM attachments WHERE user_id = ?1`,
-    ).bind(userId).first<{ bytes: number }>()
-    if ((usage?.bytes ?? 0) + bytes.byteLength > LIMITS.attachmentQuotaBytes) {
-      throw ApiError.tooLarge('The account attachment quota has been reached')
-    }
-    stored = await persistAttachment(c.env, {
-      id,
-      userId,
-      noteId,
-      filename: file.name || 'file',
-      reportedMime: file.type,
-      bytes,
-      createdAt: now,
-    })
-  } finally {
-    await release()
-  }
+  const stored = await persistAttachmentWithinQuota(c.env, {
+    id,
+    userId,
+    noteId,
+    filename: file.name || 'file',
+    reportedMime: file.type,
+    bytes,
+    createdAt: now,
+  })
 
   const attachment: Attachment = {
     id,

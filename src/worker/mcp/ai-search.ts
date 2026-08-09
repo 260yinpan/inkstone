@@ -150,20 +150,33 @@ export async function enqueueAllNotesForIndex(
   userId: string,
   now = Date.now(),
 ): Promise<number> {
-  const { results } = await db.prepare(
-    `SELECT id FROM notes WHERE user_id = ?1 AND deleted_at IS NULL`,
-  ).bind(userId).all<{ id: string }>()
-  for (let start = 0; start < results.length; start += ENQUEUE_CHUNK) {
-    const chunk = results.slice(start, start + ENQUEUE_CHUNK)
-    const statements = chunk.map(({ id }) => db.prepare(
+  const boundary = await db.prepare(
+    `SELECT MAX(id) AS id FROM notes WHERE user_id = ?1 AND deleted_at IS NULL`,
+  ).bind(userId).first<{ id: string | null }>()
+  const lastId = boundary?.id
+  if (!lastId) return 0
+
+  let cursor = ''
+  let enqueued = 0
+  while (cursor < lastId) {
+    const { results } = await db.prepare(
+      `SELECT id FROM notes
+        WHERE user_id = ?1 AND deleted_at IS NULL AND id > ?2 AND id <= ?3
+        ORDER BY id ASC LIMIT ?4`,
+    ).bind(userId, cursor, lastId, ENQUEUE_CHUNK).all<{ id: string }>()
+    if (!results.length) break
+
+    const statements = results.map(({ id }) => db.prepare(
       `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
        SELECT ?1, ?2, 'embed',
          MAX(?3, COALESCE((SELECT created_at + 1 FROM ai_index_queue
            WHERE user_id = ?1 AND note_id = ?2), ?3))`,
     ).bind(userId, id, now))
     await db.batch(statements)
+    enqueued += results.length
+    cursor = results[results.length - 1]!.id
   }
-  return results.length
+  return enqueued
 }
 
 export async function clearAiIndex(db: D1Database, userId: string): Promise<number> {

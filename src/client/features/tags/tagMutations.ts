@@ -9,6 +9,14 @@ import { useUi } from '../../store/ui'
 
 const TAG_ID_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz'
 
+interface TagColorWrite {
+  committedColor: string | null
+  sequence: number
+  tail: Promise<void>
+}
+
+const tagColorWrites = new Map<string, TagColorWrite>()
+
 export function normalizeTagName(value: string): string | null {
   const name = value.trim().replace(/^#+/, '')
   if (!name || /[\s#]/.test(name) || name.length > LIMITS.tagNameMaxLength) return null
@@ -158,27 +166,53 @@ export async function deleteTag(tag: Tag): Promise<void> {
 }
 
 export async function setTagColor(tag: Tag, color: string | null): Promise<void> {
-  if (tag.color === color) return
-  const previousColor = tag.color
+  const cachedTag = useNotes.getState().tags.find((candidate) => candidate.id === tag.id)
+  const currentColor = cachedTag ? cachedTag.color : tag.color
+  if (currentColor === color) return
+
+  const existingWrite = tagColorWrites.get(tag.id)
+  const write = existingWrite ?? {
+    committedColor: currentColor,
+    sequence: 0,
+    tail: Promise.resolve(),
+  }
+  if (!existingWrite) tagColorWrites.set(tag.id, write)
+  const sequence = ++write.sequence
+
   setOptimisticTagCache((state) => ({
     tags: state.tags.map((candidate) => candidate.id === tag.id ? { ...candidate, color } : candidate),
   }))
-  try {
-    await api.tags.patch(tag.id, { color })
-  } catch (error) {
-    setOptimisticTagCache((state) => ({
-      tags: state.tags.map((candidate) => candidate.id === tag.id
-        ? { ...candidate, color: previousColor }
-        : candidate),
-    }))
-    useUi.getState().toast({
-      title: t('tags.color_failed'),
-      description: error instanceof Error ? error.message : String(error),
-      tone: 'danger',
-    })
-    return
+
+  const operation = write.tail.then(async () => {
+    try {
+      await api.tags.patch(tag.id, { color })
+      write.committedColor = color
+    } catch (error) {
+      if (sequence === write.sequence) {
+        setOptimisticTagCache((state) => ({
+          tags: state.tags.map((candidate) => candidate.id === tag.id && candidate.color === color
+            ? { ...candidate, color: write.committedColor }
+            : candidate),
+        }))
+        useUi.getState().toast({
+          title: t('tags.color_failed'),
+          description: error instanceof Error ? error.message : String(error),
+          tone: 'danger',
+        })
+      }
+      return
+    }
+
+    if (sequence === write.sequence) {
+      await useNotes.getState().refreshTags().catch(showRefreshWarning)
+    }
+  })
+  write.tail = operation.catch(() => {})
+  await operation
+
+  if (sequence === write.sequence && tagColorWrites.get(tag.id) === write) {
+    tagColorWrites.delete(tag.id)
   }
-  await useNotes.getState().refreshTags().catch(showRefreshWarning)
 }
 
 function showRefreshWarning(): void {

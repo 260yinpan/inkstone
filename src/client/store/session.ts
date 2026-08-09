@@ -178,10 +178,6 @@ export const useSession = create<SessionState>((set, get) => ({
 
   async logout() {
     if (logoutPromise) return logoutPromise
-    sessionRequestSequence++
-    sessionCacheEpoch++
-    const pendingSessionCache = sessionCacheTask
-    resetSettingsPersistence(null)
     const task = (async () => {
       // Push unsaved offline edits before clearing local data, otherwise
       // they would be silently dropped. Dynamic import keeps the session
@@ -193,10 +189,19 @@ export const useSession = create<SessionState>((set, get) => ({
         pending = useNotes.getState().pendingCount
       } catch {
       }
-      if (pending > 0) {
-        const proceed = window.confirm(t('session.logout_pending_changes', { count: String(pending) }))
+
+      window.clearTimeout(saveTimer)
+      await flushSettingsPatch(set, get)
+      const unsaved = pending + (pendingSettingsPatch ? 1 : 0)
+      if (unsaved > 0) {
+        const proceed = window.confirm(t('session.logout_pending_changes', { count: String(unsaved) }))
         if (!proceed) return
       }
+
+      sessionRequestSequence++
+      sessionCacheEpoch++
+      const pendingSessionCache = sessionCacheTask
+      resetSettingsPersistence(null)
       await api.logout().catch(() => {})
       await pendingSessionCache.catch(() => {})
       await localDb.clear()

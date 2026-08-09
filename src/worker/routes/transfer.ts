@@ -944,7 +944,11 @@ async function prepareBundleAttachments(
     userId,
     candidates.map((candidate) => candidate.sourceId),
   )
-  const pendingCleanupIds = await loadPendingAttachmentCleanupIds(env.DB, userId)
+  const pendingCleanupIds = await loadPendingAttachmentCleanupIds(
+    env.DB,
+    userId,
+    candidates.map((candidate) => candidate.sourceId),
+  )
   const idMap = new Map<string, string>()
   const created: CreatedImportedAttachment[] = []
   const reservedIds = new Set([...existingAttachments.values()].map((attachment) => attachment.id))
@@ -1061,12 +1065,20 @@ async function loadExistingAttachments(
 async function loadPendingAttachmentCleanupIds(
   db: D1Database,
   userId: string,
+  sourceIds: readonly string[],
 ): Promise<Set<string>> {
-  const { results } = await db.prepare(
-    `SELECT object_key FROM attachment_cleanup WHERE user_id = ?1`,
-  ).bind(userId).all<{ object_key: string }>()
   const prefixes = [`r2:${userId}/`, `kv:${userId}/`]
   const ids = new Set<string>()
+  if (!sourceIds.length) return ids
+  const { results } = await db.prepare(
+    `SELECT object_key FROM attachment_cleanup
+      WHERE user_id = ?1
+        AND substr(object_key, 4, length(?1) + 1) = ?1 || '/'
+        AND substr(object_key, length(?1) + 5, 26) IN (
+          SELECT value FROM json_each(?2)
+        )
+        AND substr(object_key, length(?1) + 31, 1) = '.'`,
+  ).bind(userId, JSON.stringify(sourceIds)).all<{ object_key: string }>()
   for (const row of results) {
     const prefix = prefixes.find((candidate) => row.object_key.startsWith(candidate))
     if (!prefix) continue

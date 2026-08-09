@@ -7,6 +7,7 @@ import type {
   BackupRun,
   BackupTarget,
   BackupTargetInput,
+  BackupTargetPatchInput,
   Backlink,
   Folder,
   GraphResponse,
@@ -380,7 +381,7 @@ export const api = {
   backup: {
     targets: () => request<{ targets: BackupTarget[] }>('/api/backup/targets'),
     create: (body: BackupTargetInput) => request<BackupTarget>('/api/backup/targets', { method: 'POST', body }),
-    patch: (id: string, body: Partial<BackupTargetInput>) =>
+    patch: (id: string, body: BackupTargetPatchInput) =>
       request<BackupTarget>(`/api/backup/targets/${id}`, { method: 'PATCH', body }),
     remove: (id: string) => request<{ ok: true }>(`/api/backup/targets/${id}`, { method: 'DELETE' }),
     test: (id: string, body: Partial<BackupTargetInput> = {}) =>

@@ -387,6 +387,10 @@ export interface BackupTargetInput {
   }
 }
 
+export type BackupTargetPatchInput = Partial<BackupTargetInput> & {
+  expectedUpdatedAt?: number
+}
+
 export interface BackupTargetResult {
   targetId: string
   targetName: string

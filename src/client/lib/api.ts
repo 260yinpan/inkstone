@@ -306,12 +306,14 @@ export const api = {
     duplicate: (id: string, body: { id?: string } = {}) =>
       request<Note>(`/api/notes/${id}/duplicate`, { method: 'POST', body }),
     emptyTrash: () => request<{ purged: number }>('/api/notes/trash/empty', { method: 'POST' }),
-    versions: (id: string) => request<{ versions: NoteVersionMeta[] }>(`/api/notes/${id}/versions`),
-    version: (id: string, versionId: string) =>
-      request<NoteVersion>(`/api/notes/${id}/versions/${versionId}`),
+    versions: (id: string, signal?: AbortSignal) =>
+      request<{ versions: NoteVersionMeta[] }>(`/api/notes/${id}/versions`, { signal }),
+    version: (id: string, versionId: string, signal?: AbortSignal) =>
+      request<NoteVersion>(`/api/notes/${id}/versions/${versionId}`, { signal }),
     restoreVersion: (id: string, versionId: string) =>
       request<Note>(`/api/notes/${id}/versions/${versionId}/restore`, { method: 'POST' }),
-    backlinks: (id: string) => request<{ backlinks: Backlink[] }>(`/api/notes/${id}/backlinks`),
+    backlinks: (id: string, signal?: AbortSignal) =>
+      request<{ backlinks: Backlink[] }>(`/api/notes/${id}/backlinks`, { signal }),
   },
 
   folders: {
@@ -433,7 +435,8 @@ export const api = {
   },
 
   share: {
-    get: (noteId: string) => request<{ share: ShareInfo | null }>(`/api/share/${noteId}`),
+    get: (noteId: string, signal?: AbortSignal) =>
+      request<{ share: ShareInfo | null }>(`/api/share/${noteId}`, { signal }),
     create: (noteId: string, body: { password?: string | null; expiresIn?: number | null }) =>
       request<{ share: ShareInfo }>(`/api/share/${noteId}`, { method: 'POST', body }),
     remove: (noteId: string) => request<{ ok: true }>(`/api/share/${noteId}`, { method: 'DELETE' }),

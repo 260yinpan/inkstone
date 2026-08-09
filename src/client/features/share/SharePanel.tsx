@@ -53,6 +53,7 @@ export function SharePanel({ onClose }: {
             return;
         }
         const noteId = note.id;
+        const controller = new AbortController();
         let cancelled = false;
         setShare(undefined);
         setLoadError(null);
@@ -62,7 +63,7 @@ export function SharePanel({ onClose }: {
         setCopied(false);
         window.clearTimeout(copiedTimer.current);
         api.share
-            .get(note.id)
+            .get(note.id, controller.signal)
             .then((res) => {
             if (cancelled || loadEpoch.current !== epoch || noteIdRef.current !== noteId)
                 return;
@@ -76,6 +77,7 @@ export function SharePanel({ onClose }: {
         });
         return () => {
             cancelled = true;
+            controller.abort();
         };
     }, [note?.id, reload]);
     useEffect(() => () => {

@@ -207,7 +207,7 @@ filesRoutes.get('/', requireAuth, async (c) => {
     .bind(userId)
     .all<AttachmentRow>()
   const { results: notes } = await c.env.DB.prepare(
-    `SELECT content FROM notes WHERE user_id = ?1 AND deleted_at IS NULL`,
+    `SELECT content FROM notes WHERE user_id = ?1`,
   )
     .bind(userId)
     .all<{ content: string }>()

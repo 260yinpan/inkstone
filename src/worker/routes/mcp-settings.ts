@@ -85,6 +85,7 @@ mcpSettingsRoutes.put('/', async (c) => {
 
 mcpSettingsRoutes.post('/keys', async (c) => {
   const user = c.get('user')
+  if (!await isMcpEnabled(c.env.DB)) throw ApiError.conflict('MCP is disabled')
   const body = await readJson<{ name?: unknown }>(c, JSON_BODY_LIMITS.small)
   const name = typeof body.name === 'string' ? body.name.trim() : ''
   if (!name || name.length > 80) throw ApiError.badRequest('name must be 1-80 characters')

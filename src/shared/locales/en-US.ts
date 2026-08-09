@@ -628,6 +628,7 @@ export const EN_US_MESSAGES = {
     "settings.mcp_api_key_copy_warning": "Copy this key now — it will never be shown again",
     "settings.mcp_api_key_create": "Create key",
     "settings.mcp_api_key_created": "API key created",
+    "settings.mcp_api_key_name": "API key name",
     "settings.mcp_api_key_name_placeholder": "e.g. my-script, home-laptop",
     "settings.mcp_api_key_name_required": "Enter a name for the API key",
     "settings.mcp_api_key_revoke": "Revoke key",

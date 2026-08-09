@@ -161,6 +161,7 @@ export function McpSettings() {
   }
 
   const createKey = async () => {
+    if (displayOnly || !info?.enabled || busyRef.current) return
     const name = keyName.trim()
     if (!name) {
       toast({ title: t('settings.mcp_api_key_name_required'), tone: 'danger' })
@@ -415,7 +416,8 @@ export function McpSettings() {
         <div className="mb-2 flex items-center gap-2">
           <Input
             value={keyName}
-            disabled={displayOnly}
+            disabled={displayOnly || !info.enabled || Boolean(busy)}
+            aria-label={t('settings.mcp_api_key_name')}
             onChange={(e) => setKeyName(e.target.value)}
             maxLength={80}
             placeholder={t('settings.mcp_api_key_name_placeholder')}

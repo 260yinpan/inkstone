@@ -134,6 +134,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_attachment_cleanup_created
      ON attachment_cleanup(created_at, object_key)`,
+  `CREATE INDEX IF NOT EXISTS idx_attachment_cleanup_user
+     ON attachment_cleanup(user_id, created_at, object_key)`,
 
   `CREATE TABLE IF NOT EXISTS import_mappings (
     user_id TEXT NOT NULL,
@@ -409,6 +411,13 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON ai_index_queue(user_id, created_at, note_id)`,
     ],
   },
+  {
+    version: 9,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_attachment_cleanup_user
+         ON attachment_cleanup(user_id, created_at, object_key)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -501,6 +510,7 @@ const REQUIRED_INDEXES = [
   'idx_attachments_user_sha',
   'idx_attachments_note',
   'idx_attachment_cleanup_created',
+  'idx_attachment_cleanup_user',
   'idx_import_mappings_target',
   'idx_targets_user',
   'idx_runs_user',

@@ -326,6 +326,7 @@ export interface SyncResponse {
 
   settingsChanged: boolean
   profileChanged?: boolean
+  siteChanged?: boolean
   notes: NoteSummary[]
   folders: Folder[]
   tags: Tag[]

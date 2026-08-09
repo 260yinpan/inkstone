@@ -66,6 +66,7 @@ syncRoutes.get('/', requireAuth, async (c) => {
       facetsFull: false,
       settingsChanged: false,
       profileChanged: false,
+      siteChanged: false,
       notes: [],
       folders: [],
       tags: [],
@@ -110,6 +111,7 @@ syncRoutes.get('/', requireAuth, async (c) => {
   const facetsFull = [...latest.values()].some((item) => item.entity === 'note')
   const settingsChanged = [...latest.values()].some((item) => item.entity === 'settings')
   const profileChanged = [...latest.values()].some((item) => item.entity === 'profile')
+  const siteChanged = [...latest.values()].some((item) => item.entity === 'site')
 
   const notes = await loadInChunks(noteIds, (ids) =>
     c.env.DB.prepare(
@@ -175,6 +177,7 @@ syncRoutes.get('/', requireAuth, async (c) => {
     facetsFull,
     settingsChanged,
     profileChanged,
+    siteChanged,
     notes: notes.map(toNoteSummary),
     folders: folders.map(toFolder),
     tags: tags.map(toTag),
@@ -252,6 +255,7 @@ async function fullSnapshot(
     facetsFull: true,
     settingsChanged: true,
     profileChanged: true,
+    siteChanged: true,
     notes: pageNotes.map(toNoteSummary),
     folders: folders.results.map(toFolder),
     tags: tags.results.map(toTag),

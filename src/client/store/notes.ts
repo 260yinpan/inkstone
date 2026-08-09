@@ -327,7 +327,7 @@ export const useNotes = create<NotesState>((set, get) => ({
     applySync(payload) {
         if (payload.settingsChanged)
             void useSession.getState().refreshSettings().catch(() => { });
-        if (payload.profileChanged)
+        if (payload.profileChanged || payload.siteChanged)
             void useSession.getState().refresh().catch(() => { });
         const deletionIds = payload.deletions
             .filter((item) => item.entity === 'note')
@@ -1151,9 +1151,11 @@ function consolidateFullSync(snapshot: SyncResponse, increments: SyncResponse[])
     let serverTime = snapshot.serverTime;
     let settingsChanged = snapshot.settingsChanged;
     let profileChanged = snapshot.profileChanged;
+    let siteChanged = snapshot.siteChanged;
     for (const update of increments) {
         settingsChanged ||= update.settingsChanged;
         profileChanged ||= update.profileChanged;
+        siteChanged ||= update.siteChanged;
         for (const note of update.notes)
             notes.set(note.id, note);
         if (update.facetsFull) {
@@ -1185,6 +1187,7 @@ function consolidateFullSync(snapshot: SyncResponse, increments: SyncResponse[])
         facetsFull: true,
         settingsChanged,
         profileChanged,
+        siteChanged,
         notes: [...notes.values()],
         folders: [...folders.values()],
         tags: [...tags.values()],

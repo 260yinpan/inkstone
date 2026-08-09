@@ -39,7 +39,7 @@
     "cf-typegen:kv": "wrangler types --config wrangler.kv.toml"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "0.10.0",
+    "@cloudflare/workers-oauth-provider": "0.10.2",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.10.4",
     "@codemirror/lang-cpp": "^6.0.3",

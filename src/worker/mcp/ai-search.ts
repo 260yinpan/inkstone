@@ -10,7 +10,7 @@
  */
 import { toPlainText } from '@shared/markdown-utils'
 import { truncateText } from '@shared/text-utils'
-import { getMeta, setMeta } from '../db/metadata'
+import { getMeta, selectQueueUsersRoundRobin, setMeta } from '../db/metadata'
 import type { Env } from '../env'
 
 export const AI_EMBEDDING_MODEL = '@cf/baai/bge-m3'
@@ -20,6 +20,7 @@ const MAX_SEMANTIC_VECTORS = 8_000
 const SEMANTIC_TOP_K = 40
 const DRAIN_USERS_PER_RUN = 10
 const DRAIN_PER_USER = 25
+const AI_DRAIN_CURSOR_META_KEY = 'ai-index-drain-user-v1'
 const ENQUEUE_CHUNK = 200
 export const RRF_K = 60
 
@@ -184,18 +185,23 @@ export async function clearAiIndex(db: D1Database, userId: string): Promise<numb
  */
 export async function drainAiIndexQueue(env: Env, max: number): Promise<{ processed: number }> {
   if (!env.AI) return { processed: 0 }
+  const budget = Math.max(0, Math.trunc(max))
+  if (!Number.isFinite(budget) || budget === 0) return { processed: 0 }
   let processed = 0
-  const { results: users } = await env.DB.prepare(
-    `SELECT DISTINCT user_id FROM ai_index_queue LIMIT ?1`,
-  ).bind(DRAIN_USERS_PER_RUN).all<{ user_id: string }>()
-  for (const { user_id } of users) {
-    if (processed >= max) break
+  const users = await selectQueueUsersRoundRobin(
+    env.DB,
+    'ai_index_queue',
+    AI_DRAIN_CURSOR_META_KEY,
+    Math.min(DRAIN_USERS_PER_RUN, Math.ceil(budget / DRAIN_PER_USER)),
+  )
+  for (const user_id of users) {
+    if (processed >= budget) break
     if (!await isAiSearchEnabled(env.DB, user_id)) {
       // The account turned AI search off; its queue would otherwise grow forever.
       await env.DB.prepare(`DELETE FROM ai_index_queue WHERE user_id = ?1`).bind(user_id).run()
       continue
     }
-    processed += await drainUserQueue(env, user_id, Math.min(max - processed, DRAIN_PER_USER))
+    processed += await drainUserQueue(env, user_id, Math.min(budget - processed, DRAIN_PER_USER))
   }
   return { processed }
 }

@@ -57,8 +57,12 @@ async function oauthMetadataWithoutIssParameter(
   if (!response.ok || !contentType.includes('application/json')) return response
   const metadata = (await response.json()) as Record<string, unknown>
   delete metadata.authorization_response_iss_parameter_supported
+  const headers = new Headers(response.headers)
+  headers.delete('Content-Length')
+  headers.set('Content-Type', 'application/json')
   return new Response(JSON.stringify(metadata), {
     status: response.status,
-    headers: { 'Content-Type': 'application/json' },
+    statusText: response.statusText,
+    headers,
   })
 }

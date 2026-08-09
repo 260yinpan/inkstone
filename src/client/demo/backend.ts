@@ -654,11 +654,27 @@ export function createDemoBackend(): DemoBackend {
     const form = await c.req.raw.formData()
     const file = form.get('file')
     if (!(file instanceof File)) return apiError(400, 'bad_request', 'Missing file')
+    if (file.size > LIMITS.attachmentMaxBytes) {
+      return apiError(413, 'payload_too_large', 'The file exceeds the 25 MB limit')
+    }
+    const usedBytes = [...state.attachments.values()]
+      .reduce((total, attachment) => total + attachment.meta.size, 0)
+    if (usedBytes + file.size > LIMITS.attachmentQuotaBytes) {
+      return apiError(413, 'payload_too_large', 'The account attachment quota has been reached')
+    }
+    const rawNoteId = form.get('noteId')
+    const noteId = typeof rawNoteId === 'string' && rawNoteId ? rawNoteId.slice(0, 128) : null
+    if (noteId) {
+      const note = state.notes.get(noteId)
+      if (!note || note.deletedAt !== null) {
+        return apiError(400, 'bad_request', 'The associated note does not exist')
+      }
+    }
     const id = newDemoId()
     const url = await browserFileUrl(file)
     const meta = {
       id,
-      noteId: typeof form.get('noteId') === 'string' ? String(form.get('noteId')) : null,
+      noteId,
       filename: file.name || 'file',
       mime: file.type || 'application/octet-stream',
       size: file.size,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, Sparkles, Trash2 } from 'lucide-react';
 import type { AttachmentWithUsage } from '@shared/types';
 import { cn } from '../../lib/cn';
@@ -24,10 +24,13 @@ export function AttachmentManager({ open, onClose, onChanged, }: {
     const [filter, setFilter] = useState<FilterKind>('all');
     const [busy, setBusy] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
+    const loadEpoch = useRef(0);
     const toast = useUi((s) => s.toast);
-    const load = useCallback(async (cursor?: string) => {
+    const loadPage = useCallback(async (cursor: string | undefined, epoch: number, signal?: AbortSignal) => {
         try {
-            const result = await api.files.list(cursor);
+            const result = await api.files.list(cursor, signal);
+            if (epoch !== loadEpoch.current)
+                return false;
             setFiles((previous) => {
                 if (!cursor)
                     return result.files;
@@ -36,8 +39,11 @@ export function AttachmentManager({ open, onClose, onChanged, }: {
             });
             setNextCursor(result.nextCursor ?? null);
             setError(null);
+            return true;
         }
         catch (err) {
+            if (epoch !== loadEpoch.current || signal?.aborted)
+                return false;
             const message = err instanceof Error ? err.message : String(err);
             if (cursor) {
                 toast({ title: t("attachments.load_failed"), description: message, tone: 'danger' });
@@ -45,12 +51,29 @@ export function AttachmentManager({ open, onClose, onChanged, }: {
             else {
                 setError(message);
             }
+            return false;
         }
     }, [toast]);
+    const reloadFiles = useCallback((signal?: AbortSignal) => {
+        const epoch = ++loadEpoch.current;
+        setFiles(null);
+        setNextCursor(null);
+        setError(null);
+        setLoadingMore(false);
+        return loadPage(undefined, epoch, signal);
+    }, [loadPage]);
     useEffect(() => {
-        if (open)
-            void load();
-    }, [open, load]);
+        if (!open) {
+            loadEpoch.current++;
+            return;
+        }
+        const controller = new AbortController();
+        void reloadFiles(controller.signal);
+        return () => {
+            controller.abort();
+            loadEpoch.current++;
+        };
+    }, [open, reloadFiles]);
     const isImage = (file: AttachmentWithUsage) => file.mime.startsWith('image/');
     const isDocument = (file: AttachmentWithUsage) => !isImage(file) && file.mime !== 'application/octet-stream';
     const filtered = useMemo(() => {
@@ -109,7 +132,7 @@ export function AttachmentManager({ open, onClose, onChanged, }: {
         setBusy(true);
         try {
             const result = await api.files.prune();
-            await load();
+            await reloadFiles();
             onChanged?.();
             toast({
                 title: result.removed
@@ -134,11 +157,13 @@ export function AttachmentManager({ open, onClose, onChanged, }: {
         if (busy || loadingMore || !nextCursor)
             return;
         setLoadingMore(true);
+        const epoch = loadEpoch.current;
         try {
-            await load(nextCursor);
+            await loadPage(nextCursor, epoch);
         }
         finally {
-            setLoadingMore(false);
+            if (epoch === loadEpoch.current)
+                setLoadingMore(false);
         }
     };
     return (<Drawer open={open} onClose={onClose} title={t("attachments.manage")} width={420} zIndex={230}>

@@ -363,8 +363,9 @@ export const api = {
     ),
 
   files: {
-    list: (cursor?: string) => request<{ files: AttachmentWithUsage[]; nextCursor?: string | null }>(
+    list: (cursor?: string, signal?: AbortSignal) => request<{ files: AttachmentWithUsage[]; nextCursor?: string | null }>(
       `/api/files${toQuery({ cursor })}`,
+      { signal },
     ),
     upload: (file: File, noteId?: string) => {
       const form = new FormData()

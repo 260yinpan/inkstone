@@ -158,10 +158,12 @@ export function createDemoBackend(): DemoBackend {
   })
   app.post('/api/notes', async (c) => {
     const body = await jsonBody(c.req.raw)
-    const requestedId = typeof body.id === 'string' && body.id ? body.id : newDemoId()
-    if (state.notes.has(requestedId)) {
-      return apiError(409, 'conflict', 'A note with this ID already exists')
+    if (body.id !== undefined && (typeof body.id !== 'string' || !/^[0-9a-hjkmnp-tv-z]{26}$/.test(body.id))) {
+      return apiError(400, 'bad_request', 'id must be a valid note id')
     }
+    const requestedId = typeof body.id === 'string' ? body.id : newDemoId()
+    const existing = state.notes.get(requestedId)
+    if (existing) return c.json(existing)
     const content = typeof body.content === 'string' ? body.content : ''
     const now = Date.now()
     const base: Note = {

@@ -198,11 +198,21 @@ export const useSession = create<SessionState>((set, get) => ({
         if (!proceed) return
       }
 
+      try {
+        await api.logout()
+      } catch (err) {
+        useUi.getState().toast({
+          title: t('session.logout_failed'),
+          description: err instanceof ApiError ? err.message : String(err),
+          tone: 'danger',
+        })
+        return
+      }
+
       sessionRequestSequence++
       sessionCacheEpoch++
       const pendingSessionCache = sessionCacheTask
       resetSettingsPersistence(null)
-      await api.logout().catch(() => {})
       await pendingSessionCache.catch(() => {})
       await localDb.clear()
       set({ status: 'anonymous', user: null, settings: DEFAULT_SETTINGS })

@@ -428,6 +428,7 @@ export const ZH_CN_MESSAGES = {
     "pwa.update_ready_description": "方便时刷新即可；刷新前会先保存待处理的笔记更改。",
     "session.could_not_connect_to_the_server": "无法连接服务器",
     "session.could_not_save_settings": "设置未能保存",
+    "session.logout_failed": "无法安全退出登录",
     "session.logout_pending_changes": "有 {count} 条修改尚未同步，退出登录将丢失这些修改。仍要退出吗？",
     "settings.20_gb_free_25_gb_with_referral_code": "免费 20 GB，推荐码后 25 GB",
     "settings.about": "关于",

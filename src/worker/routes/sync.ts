@@ -219,7 +219,7 @@ async function fullSnapshot(
         `SELECT ${NOTE_COLUMNS} FROM notes n WHERE n.user_id = ?1
           AND n.id > ?2 ORDER BY n.id ASC LIMIT ?3`,
       )
-      .bind(userId, after, LIMITS.syncBatchSize)
+      .bind(userId, after, LIMITS.syncBatchSize + 1)
       .all<NoteRow>(),
     !after
       ? db
@@ -241,17 +241,18 @@ async function fullSnapshot(
           .all<TagRow>()
       : Promise.resolve({ results: [] as TagRow[] }),
   ])
-  const hasMore = notes.results.length === LIMITS.syncBatchSize
+  const pageNotes = notes.results.slice(0, LIMITS.syncBatchSize)
+  const hasMore = notes.results.length > LIMITS.syncBatchSize
 
   return {
     cursor,
     full: true,
     hasMore,
-    nextKey: hasMore ? notes.results[notes.results.length - 1]!.id : null,
+    nextKey: hasMore ? pageNotes[pageNotes.length - 1]!.id : null,
     facetsFull: true,
     settingsChanged: true,
     profileChanged: true,
-    notes: notes.results.map(toNoteSummary),
+    notes: pageNotes.map(toNoteSummary),
     folders: folders.results.map(toFolder),
     tags: tags.results.map(toTag),
     deletions: [],

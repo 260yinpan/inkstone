@@ -414,8 +414,15 @@ export const ZH_CN_MESSAGES = {
     "pwa.install_description": "在独立窗口中打开 Inkstone，并让应用外壳保持离线可用。",
     "pwa.install_inkstone": "安装 Inkstone",
     "pwa.installed": "已安装",
-    "pwa.offline_ready": "Inkstone 已可离线打开",
-    "pwa.offline_ready_description": "应用外壳已保存在这台设备上。",
+    "pwa.offline_ready": "完整离线资源已准备好",
+    "pwa.offline_ready_description": "Inkstone 的所有功能现在都能在这台设备上断网打开。",
+    "pwa.complete_offline_access": "完整离线能力",
+    "pwa.complete_offline_preparing_description": "Inkstone 会保持流畅，并在后台安静地补齐其余功能。",
+    "pwa.complete_offline_ready": "全部功能已就绪",
+    "pwa.complete_offline_ready_description": "从未打开过的功能现在也可以离线使用。",
+    "pwa.complete_offline_retry_description": "已下载的资源会保留，网络恢复后将自动继续。",
+    "pwa.preparing_progress": "正在准备 {completed}/{total}",
+    "pwa.waiting_for_network": "等待继续",
     "pwa.refresh_now": "立即刷新",
     "pwa.update_ready": "应用更新已就绪",
     "pwa.update_ready_description": "方便时刷新即可；刷新前会先保存待处理的笔记更改。",
@@ -443,13 +450,13 @@ export const ZH_CN_MESSAGES = {
     "settings.background_color": "背景色",
     "settings.background_paper": "暖纸",
     "settings.background_white": "纯白",
-    "settings.accent.amber": "黄铜",
-    "settings.accent.celadon": "青瓷",
+    "settings.accent.amber": "金盏黄",
+    "settings.accent.celadon": "翡翠绿",
     "settings.accent.cinnabar": "朱砂",
-    "settings.accent.graphite": "石墨",
-    "settings.accent.indigo": "靛蓝",
-    "settings.accent.terracotta": "赤陶",
-    "settings.accent.wisteria": "紫藤",
+    "settings.accent.graphite": "雾岩灰",
+    "settings.accent.indigo": "深海蓝",
+    "settings.accent.terracotta": "湖水青",
+    "settings.accent.wisteria": "鸢尾紫",
     "settings.access_key_id": "Access Key ID",
     "settings.account": "账户",
     "settings.action_failed_try_again": "操作失败，请重试",
@@ -1042,19 +1049,23 @@ aliases:
 
 ## 为什么适合长期使用
 
-::: tabs
-@tab 写作
+:::: tabs
+::: tab-item 写作
 独立标题、源码编辑、实时预览、双向滚动、专注模式、打字机模式、大纲与版本历史。
+:::
 
-@tab 组织
+::: tab-item 组织
 最多 12 层且可拖拽排序的文件夹、正文 \`#标签\`、\`[[双链]]\`、反向链接、关系图谱和中文全文搜索。桌面端可以在侧边再开一篇笔记，每个窗格独立选择编辑、分栏或预览；删除文件夹时会保留并提升子文件夹，直属笔记移到上一级。
+:::
 
-@tab 搜索与 AI
+::: tab-item 搜索与 AI
 命令面板、关键词搜索，以及可选的 Workers AI 语义/混合搜索。每个账号使用独立索引；AI 不可用时自动回退到关键词结果。
+:::
 
-@tab 安全与备份
+::: tab-item 安全与备份
 自托管、可安装 PWA、离线可写、多设备同步和冲突副本；可同时备份到多个 WebDAV 或 S3 目标，并导出可读 Markdown、附件与完整结构化数据。
 :::
+::::
 
 ## 私有 MCP（可选）
 
@@ -1148,13 +1159,15 @@ flowchart LR
 ~~~~
 
 ~~~~md-example title="标签页"
-::: tabs
-@tab 第一个标签
+:::: tabs
+::: tab-item 第一个标签
 这是第一个标签页的内容。
+:::
 
-@tab 第二个标签
+::: tab-item 第二个标签
 这是第二个标签页的内容。
 :::
+::::
 ~~~~
 
 ~~~~md-example title="折叠内容"

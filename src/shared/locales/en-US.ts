@@ -413,8 +413,15 @@ export const EN_US_MESSAGES = {
     "pwa.install_description": "Open Inkstone in its own window and keep the app shell available offline.",
     "pwa.install_inkstone": "Install Inkstone",
     "pwa.installed": "Installed",
-    "pwa.offline_ready": "Inkstone is ready offline",
-    "pwa.offline_ready_description": "The app shell is now stored on this device.",
+    "pwa.offline_ready": "All offline resources are ready",
+    "pwa.offline_ready_description": "Every Inkstone feature can now open on this device without a network connection.",
+    "pwa.complete_offline_access": "Complete offline access",
+    "pwa.complete_offline_preparing_description": "Inkstone stays responsive while the remaining features download quietly in the background.",
+    "pwa.complete_offline_ready": "All features ready",
+    "pwa.complete_offline_ready_description": "Features you have not opened yet are also available offline.",
+    "pwa.complete_offline_retry_description": "Downloaded resources are kept. Inkstone will continue automatically when the connection returns.",
+    "pwa.preparing_progress": "Preparing {completed}/{total}",
+    "pwa.waiting_for_network": "Waiting to continue",
     "pwa.refresh_now": "Refresh now",
     "pwa.update_ready": "An app update is ready",
     "pwa.update_ready_description": "Refresh when convenient. Pending note changes are saved first.",
@@ -442,13 +449,13 @@ export const EN_US_MESSAGES = {
     "settings.background_color": "Background",
     "settings.background_paper": "Warm paper",
     "settings.background_white": "Pure white",
-    "settings.accent.amber": "Brass",
-    "settings.accent.celadon": "Celadon",
+    "settings.accent.amber": "Marigold",
+    "settings.accent.celadon": "Jade",
     "settings.accent.cinnabar": "Cinnabar",
-    "settings.accent.graphite": "Graphite",
-    "settings.accent.indigo": "Indigo",
-    "settings.accent.terracotta": "Terracotta",
-    "settings.accent.wisteria": "Wisteria",
+    "settings.accent.graphite": "Slate",
+    "settings.accent.indigo": "Deep sea",
+    "settings.accent.terracotta": "Lagoon",
+    "settings.accent.wisteria": "Iris",
     "settings.access_key_id": "Access Key ID",
     "settings.account": "Account",
     "settings.action_failed_try_again": "Action failed. Try again",
@@ -1041,19 +1048,23 @@ Use the left side to organize notes, the center to edit plain Markdown, and the 
 
 ## Why it works for long-term notes
 
-::: tabs
-@tab Writing
+:::: tabs
+::: tab-item Writing
 Independent titles, source editing, live preview, synchronized scrolling, focus and typewriter modes, an outline, and version history.
+:::
 
-@tab Organization
+::: tab-item Organization
 Twelve levels of drag-sortable folders, inline \`#tags\`, \`[[wiki links]]\`, backlinks, a graph, and full-text search. On desktop, open a second note to the side and choose edit, split, or preview independently in each active group. Deleting a folder promotes its children and moves direct notes to the parent.
+:::
 
-@tab Search & AI
+::: tab-item Search & AI
 Keyboard command-palette navigation, keyword search, and optional Workers AI semantic/hybrid search. Every account has a separate index, with automatic keyword fallback when AI is unavailable.
+:::
 
-@tab Safety & backup
+::: tab-item Safety & backup
 Self-hosting, an installable PWA, offline editing, multi-device sync, and conflict copies. Back up to several WebDAV or S3 targets and export readable Markdown, attachments, and complete structured data.
 :::
+::::
 
 ## Private MCP (optional)
 
@@ -1147,13 +1158,15 @@ flowchart LR
 ~~~~
 
 ~~~~md-example title="Tabs"
-::: tabs
-@tab First tab
+:::: tabs
+::: tab-item First tab
 This is the first tab panel.
+:::
 
-@tab Second tab
+::: tab-item Second tab
 This is the second tab panel.
 :::
+::::
 ~~~~
 
 ~~~~md-example title="Folded content"

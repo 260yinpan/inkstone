@@ -38,14 +38,14 @@ export const LIMITS = {
   ftsContentChars: 200_000,
 } as const
 
-export const ACCENTS: { name: AccentName; swatch: string }[] = [
-  { name: 'cinnabar', swatch: 'oklch(58% 0.15 31)' },
-  { name: 'indigo', swatch: 'oklch(62% 0.16 265)' },
-  { name: 'celadon', swatch: 'oklch(64% 0.105 175)' },
-  { name: 'amber', swatch: 'oklch(70% 0.14 70)' },
-  { name: 'terracotta', swatch: 'oklch(64% 0.15 33)' },
-  { name: 'wisteria', swatch: 'oklch(64% 0.15 305)' },
-  { name: 'graphite', swatch: 'oklch(55% 0.012 265)' },
+export const ACCENTS: { name: AccentName; swatch: string; foreground: string }[] = [
+  { name: 'cinnabar', swatch: 'oklch(58% 0.15 31)', foreground: 'white' },
+  { name: 'indigo', swatch: 'oklch(62% 0.16 252)', foreground: 'white' },
+  { name: 'celadon', swatch: 'oklch(66% 0.13 150)', foreground: 'oklch(16% 0.008 265)' },
+  { name: 'amber', swatch: 'oklch(76% 0.15 95)', foreground: 'oklch(16% 0.008 265)' },
+  { name: 'terracotta', swatch: 'oklch(68% 0.1 205)', foreground: 'oklch(16% 0.008 265)' },
+  { name: 'wisteria', swatch: 'oklch(62% 0.16 300)', foreground: 'white' },
+  { name: 'graphite', swatch: 'oklch(55% 0.035 250)', foreground: 'white' },
 ]
 
 export const PROSE_WIDTH_CH: Record<string, string> = {

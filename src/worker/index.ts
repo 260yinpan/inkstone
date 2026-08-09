@@ -7,6 +7,7 @@ import { drainAiIndexQueue } from './mcp/ai-search'
 import { createOAuthProvider, providerForScheduled } from './mcp/oauth'
 import { purgeRevokedMcpApiKeys } from './mcp/api-keys'
 import { purgeExpiredMcpOperations } from './mcp/operations'
+import { purgeExpiredOperationalData } from './lib/maintenance'
 
 export { SyncHub } from './realtime/sync-hub'
 export { CredentialVault } from './durable/credential-vault'
@@ -35,6 +36,7 @@ export default {
         runScheduledBackups(env),
         runAttachmentCleanup(env),
         purgeExpiredMcpOperations(env.DB),
+        purgeExpiredOperationalData(env.DB),
         purgeRevokedMcpApiKeys(env.DB),
         providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
         drainAiIndexQueue(env, 300),

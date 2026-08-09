@@ -138,10 +138,12 @@ async function trimChangeLog(env: Env): Promise<void> {
     if (results.length === 0) break
     for (const row of results) {
       await env.DB.prepare(
-        `DELETE FROM changes WHERE user_id = ?1 AND seq < (
-           SELECT MIN(seq) FROM (
-             SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT ?2
-           )
+        `DELETE FROM changes WHERE seq IN (
+           SELECT seq FROM changes WHERE user_id = ?1 AND seq < (
+             SELECT MIN(seq) FROM (
+               SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT ?2
+             )
+           ) ORDER BY seq LIMIT 1000
          )`,
       )
         .bind(row.user_id, LIMITS.changeLogKept)

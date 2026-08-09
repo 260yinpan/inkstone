@@ -723,7 +723,21 @@ notesRoutes.post('/:id/duplicate', async (c) => {
     expectedTitle: title,
     expectedUpdatedAt: now,
   }).statements
-  await c.env.DB.batch([insert, ...derived, changeStatement(c.env.DB, userId, 'note', id, 'upsert')])
+  try {
+    await c.env.DB.batch([insert, ...derived, changeStatement(c.env.DB, userId, 'note', id, 'upsert')])
+  } catch (error) {
+    if (body.id) {
+      const existing = await c.env.DB.prepare(
+        `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
+      ).bind(id, userId).first<NoteRow>()
+      if (existing) return c.json(toNote(existing))
+      const collision = await c.env.DB.prepare(`SELECT user_id FROM notes WHERE id = ?1`)
+        .bind(id)
+        .first<{ user_id: string }>()
+      if (collision) throw ApiError.conflict('This note id is already in use')
+    }
+    throw error
+  }
   await broadcastCursor(c)
   await enqueueNoteIndex(c.env.DB, userId, id, 'embed')
   scheduleFtsDrain(c)

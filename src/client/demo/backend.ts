@@ -832,6 +832,9 @@ export function createDemoBackend(): DemoBackend {
 
   app.get('/api/backup/targets', (c) => c.json({ targets: [...state.backupTargets.values()] }))
   app.post('/api/backup/targets', async (c) => {
+    if (state.backupTargets.size >= LIMITS.backupTargetsMax) {
+      return apiError(409, 'conflict', `Each account can configure at most ${LIMITS.backupTargetsMax} backup targets`)
+    }
     const input = await jsonBody(c.req.raw) as unknown as BackupTargetInput
     const target = createBackupTarget(input)
     state.backupTargets.set(target.id, target)
@@ -865,6 +868,9 @@ export function createDemoBackend(): DemoBackend {
   })
   app.post('/api/backup/run', async (c) => {
     const body = await jsonBody(c.req.raw)
+    if (Array.isArray(body.targetIds) && body.targetIds.length > LIMITS.backupTargetsMax) {
+      return apiError(400, 'bad_request', `Select at most ${LIMITS.backupTargetsMax} backup targets`)
+    }
     const selected = Array.isArray(body.targetIds)
       ? body.targetIds.filter((id): id is string => typeof id === 'string')
       : [...state.backupTargets.keys()]

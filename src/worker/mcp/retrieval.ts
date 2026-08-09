@@ -4,6 +4,7 @@ import type { Note } from '@shared/types'
 import { NOTE_COLUMNS, NOTE_COLUMNS_FULL, toNote, toNoteSummary, type NoteRow } from '../db/rows'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
+import { isValidId } from '../lib/id'
 import { searchUserNotes } from '../routes/search'
 import {
   fuseByRrf,
@@ -335,7 +336,7 @@ export async function listMcpNotes(
 ): Promise<Record<string, unknown>> {
   const view = input.view ?? 'recent'
   const limit = Math.max(1, Math.min(50, input.limit ?? 20))
-  const offset = parseCursor(input.cursor)
+  const cursor = parseListCursor(input.cursor)
   let where = 'n.user_id = ?1'
   if (view === 'trash') where += ' AND n.deleted_at IS NOT NULL'
   else {
@@ -344,13 +345,22 @@ export async function listMcpNotes(
     else where += ' AND n.is_archived = 0'
   }
   if (view === 'starred') where += ' AND n.is_starred = 1'
-  const { results } = await db.prepare(
-    `SELECT ${NOTE_COLUMNS} FROM notes n WHERE ${where}
-      ORDER BY n.updated_at DESC, n.id ASC LIMIT ?2 OFFSET ?3`,
-  ).bind(userId, limit + 1, offset).all<NoteRow>()
+  const query = cursor.kind === 'key'
+    ? db.prepare(
+      `SELECT ${NOTE_COLUMNS} FROM notes n WHERE ${where}
+        AND (n.updated_at < ?2 OR (n.updated_at = ?2 AND n.id > ?3))
+        ORDER BY n.updated_at DESC, n.id ASC LIMIT ?4`,
+    ).bind(userId, cursor.updatedAt, cursor.id, limit + 1)
+    : db.prepare(
+      `SELECT ${NOTE_COLUMNS} FROM notes n WHERE ${where}
+        ORDER BY n.updated_at DESC, n.id ASC LIMIT ?2 OFFSET ?3`,
+    ).bind(userId, limit + 1, cursor.offset)
+  const { results } = await query.all<NoteRow>()
   const hasMore = results.length > limit
+  const page = results.slice(0, limit)
+  const last = page.at(-1)
   return {
-    notes: results.slice(0, limit).map((row) => {
+    notes: page.map((row) => {
       const note = toNoteSummary(row)
       return {
         id: note.id,
@@ -365,7 +375,7 @@ export async function listMcpNotes(
         updated_at: new Date(note.updatedAt).toISOString(),
       }
     }),
-    next_cursor: hasMore ? String(offset + limit) : null,
+    next_cursor: hasMore && last ? encodeListCursor(last.updated_at, last.id) : null,
   }
 }
 
@@ -477,6 +487,35 @@ function parseCursor(value: string | undefined): number {
   const parsed = Number(value)
   if (!Number.isSafeInteger(parsed) || parsed < 0) throw ApiError.badRequest('Invalid cursor')
   return parsed
+}
+
+type ListCursor =
+  | { kind: 'offset'; offset: number }
+  | { kind: 'key'; updatedAt: number; id: string }
+
+function parseListCursor(value: string | undefined): ListCursor {
+  if (!value) return { kind: 'offset', offset: 0 }
+  if (!value.startsWith('k1.')) return { kind: 'offset', offset: parseCursor(value) }
+  const separator = value.indexOf('.', 3)
+  const encodedTime = separator >= 0 ? value.slice(3, separator) : ''
+  const updatedAt = /^[0-9a-z]+$/.test(encodedTime) ? Number.parseInt(encodedTime, 36) : Number.NaN
+  const id = separator >= 0 ? decodeURIComponentSafe(value.slice(separator + 1)) : ''
+  if (!Number.isSafeInteger(updatedAt) || updatedAt < 0 || !isValidId(id)) {
+    throw ApiError.badRequest('Invalid cursor')
+  }
+  return { kind: 'key', updatedAt, id }
+}
+
+function encodeListCursor(updatedAt: number, id: string): string {
+  return `k1.${updatedAt.toString(36)}.${encodeURIComponent(id)}`
+}
+
+function decodeURIComponentSafe(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    throw ApiError.badRequest('Invalid cursor')
+  }
 }
 
 function lineOffsets(content: string): number[] {

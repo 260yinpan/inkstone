@@ -13,6 +13,7 @@ import {
 } from '@shared/markdown-utils'
 import type {
   BackupMode,
+  BackupRun,
   BackupTarget,
   BackupTargetConfig,
   BackupTargetInput,
@@ -874,7 +875,9 @@ export function createDemoBackend(): DemoBackend {
     const selected = Array.isArray(body.targetIds)
       ? body.targetIds.filter((id): id is string => typeof id === 'string')
       : [...state.backupTargets.keys()]
-    const targets = selected.map((id) => state.backupTargets.get(id)).filter((item): item is BackupTarget => Boolean(item))
+    const targets = [...new Set(selected)]
+      .map((id) => state.backupTargets.get(id))
+      .filter((item): item is BackupTarget => Boolean(item?.enabled))
     const startedAt = Date.now()
     const results = targets.map((target) => ({
       targetId: target.id,
@@ -886,18 +889,19 @@ export function createDemoBackend(): DemoBackend {
       ms: 40,
       error: null,
     }))
-    const run = {
+    const run: BackupRun = {
       id: newDemoId(),
       trigger: 'manual' as const,
-      status: 'success' as const,
+      status: targets.length ? 'success' : 'failed',
       startedAt,
       finishedAt: Date.now(),
-      noteCount: state.notes.size,
+      noteCount: targets.length ? state.notes.size : 0,
       fileCount: results.reduce((total, result) => total + result.files, 0),
       bytes: results.reduce((total, result) => total + result.bytes, 0),
       results,
     }
     state.backupRuns.unshift(run)
+    state.backupRuns.splice(LIMITS.backupRunsKept)
     return c.json(run)
   })
   app.get('/api/backup/runs', (c) => c.json({ runs: state.backupRuns }))

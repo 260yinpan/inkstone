@@ -9,7 +9,6 @@ import { JSON_BODY_LIMITS, readJson, readOptionalJson, requestClientIp } from '.
 import { hashPassword, verifyPassword } from '../lib/password'
 import {
   createShareAssetSession,
-  revokeShareAssetSessions,
   shareAssetCookieName,
 } from '../lib/share-asset-session'
 import {
@@ -75,10 +74,6 @@ shareManageRoutes.post('/:noteId', async (c) => {
     .first<{ id: string }>()
   if (!note) throw ApiError.notFound('Note not found')
 
-  const previous = await c.env.DB.prepare(
-    `SELECT slug, expires_at FROM shares WHERE note_id = ?1 AND user_id = ?2`,
-  ).bind(noteId, userId).first<{ slug: string; expires_at: number | null }>()
-
   const slug = newSlug()
   if (body.password !== undefined && body.password !== null && typeof body.password !== 'string') {
     throw ApiError.badRequest('password must be a string or null')
@@ -133,24 +128,15 @@ shareManageRoutes.post('/:noteId', async (c) => {
   const row = await c.env.DB.prepare(`SELECT * FROM shares WHERE note_id = ?1 AND user_id = ?2`)
     .bind(noteId, userId)
     .first<ShareRow>()
-  const expiryShortened = previous && row!.expires_at !== null &&
-    (previous.expires_at === null || row!.expires_at < previous.expires_at)
-  if (replacePassword || expiryShortened) await revokeShareAssetSessions(c.env.DB, row!.slug)
   return c.json({ share: toShareInfo(row!, new URL(c.req.url).origin) })
 })
 
 shareManageRoutes.delete('/:noteId', async (c) => {
   const noteId = c.req.param('noteId')
   const userId = c.get('userId')
-  const row = await c.env.DB.prepare(`SELECT slug FROM shares WHERE note_id = ?1 AND user_id = ?2`)
+  await c.env.DB.prepare(`DELETE FROM shares WHERE note_id = ?1 AND user_id = ?2`)
     .bind(noteId, userId)
-    .first<{ slug: string }>()
-  if (row) {
-    await c.env.DB.batch([
-      c.env.DB.prepare(`DELETE FROM share_asset_sessions WHERE slug = ?1`).bind(row.slug),
-      c.env.DB.prepare(`DELETE FROM shares WHERE note_id = ?1 AND user_id = ?2`).bind(noteId, userId),
-    ])
-  }
+    .run()
   return c.json({ ok: true })
 })
 

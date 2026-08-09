@@ -536,7 +536,10 @@ export function createBroadcast(
   const channel = new BroadcastChannel('inkstone')
   channel.onmessage = (event) => {
     const payload = event.data as BroadcastPayload
-    if (payload?.userId && payload.userId !== activeUserId) return
+    // Messages from clients that predate user-scoped broadcasts are intentionally
+    // ignored. They cannot be attributed safely after an account switch; those
+    // clients still converge through the server-backed polling/realtime paths.
+    if (!activeUserId || payload?.userId !== activeUserId) return
     onMessage(payload)
   }
   return {

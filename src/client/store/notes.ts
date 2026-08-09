@@ -1089,7 +1089,8 @@ export const useNotes = create<NotesState>((set, get) => ({
             if (changed)
                 scheduleShellSave(get);
         }
-        catch {
+        catch (error) {
+            throw error;
         }
     },
     replayPending() {

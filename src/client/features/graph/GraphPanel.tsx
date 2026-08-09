@@ -214,15 +214,21 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
       setLoadError(t('graph.local_requires_note'))
       return
     }
+    const controller = new AbortController()
     let cancelled = false
     setData(null)
     setLoadError(null)
-    api.graph(request).then((response) => {
+    api.graph(request, controller.signal).then((response) => {
       if (!cancelled) setData(normalizedResponse(response))
     }).catch((error) => {
-      if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error))
+      if (!cancelled && (error as Error)?.name !== 'AbortError') {
+        setLoadError(error instanceof Error ? error.message : String(error))
+      }
     })
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
   }, [request, reload])
 
   useEffect(() => {

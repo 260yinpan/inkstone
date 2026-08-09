@@ -7,7 +7,7 @@ import { formatBytes } from '../../lib/time';
 import { Button, IconButton } from '../../components/primitives';
 import { LoadingBlock } from '../../components/feedback';
 import { Segmented } from '../../components/form';
-import { Drawer, confirm } from '../../components/overlay';
+import { Drawer, Tooltip, confirm } from '../../components/overlay';
 import { useUi } from '../../store/ui';
 import { t } from "../../lib/i18n";
 
@@ -142,9 +142,11 @@ export function AttachmentManager({ open, onClose, onChanged, }: {
                         <span className="max-w-[80%] truncate text-[10px]">{file.filename}</span>
                       </div>)}
                     <div className="absolute top-1.5 right-1.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
-                      <IconButton label={t("attachments.delete")} size="sm" onClick={() => void removeFile(file)} className="border border-[var(--border-default)] bg-[var(--bg-overlay)] shadow-[var(--shadow-pop)] hover:text-[var(--danger)]">
-                        <Trash2 size={13}/>
-                      </IconButton>
+                      <Tooltip label={t("attachments.delete")} side="left">
+                        <IconButton label={t("attachments.delete")} size="sm" onClick={() => void removeFile(file)} className="border border-[var(--border-default)] bg-[var(--bg-overlay)] shadow-[var(--shadow-pop)] hover:text-[var(--danger)]">
+                          <Trash2 size={13}/>
+                        </IconButton>
+                      </Tooltip>
                     </div>
                   </div>
                   <div className="space-y-0.5 px-2 py-1.5">

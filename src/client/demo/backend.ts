@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { APP_VERSION, LIMITS, mergeSettingsPatch } from '@shared/constants'
-import { duplicateNoteTitle } from '@shared/text-utils'
+import { duplicateNoteTitle, utf8ByteLength } from '@shared/text-utils'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import {
   deriveExcerpt,
@@ -165,6 +165,9 @@ export function createDemoBackend(): DemoBackend {
     const existing = state.notes.get(requestedId)
     if (existing) return c.json(existing)
     const content = typeof body.content === 'string' ? body.content : ''
+    if (utf8ByteLength(content) > LIMITS.contentMaxBytes) {
+      return apiError(413, 'payload_too_large', 'Note content exceeds the 2 MB limit')
+    }
     const now = Date.now()
     const base: Note = {
       id: requestedId,
@@ -280,8 +283,11 @@ export function createDemoBackend(): DemoBackend {
     if (body.rev !== note.rev) {
       return apiError(409, 'conflict', 'The note changed on another device', { server: note })
     }
-    if (typeof body.content === 'string' || typeof body.title === 'string') saveVersion(state, note)
     const nextContent = typeof body.content === 'string' ? body.content : note.content
+    if (utf8ByteLength(nextContent) > LIMITS.contentMaxBytes) {
+      return apiError(413, 'payload_too_large', 'Note content exceeds the 2 MB limit')
+    }
+    if (typeof body.content === 'string' || typeof body.title === 'string') saveVersion(state, note)
     let updated = refreshNote(
       {
         ...note,

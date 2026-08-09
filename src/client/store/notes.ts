@@ -1106,12 +1106,13 @@ export function setOptimisticTagCache(update: (state: NotesState) => Partial<Tag
 async function collectFullSync(first: SyncResponse): Promise<SyncResponse> {
     const notes = new Map(first.notes.map((note) => [note.id, note]));
     let page = first;
-    let pages = 1;
+    const requestedKeys = new Set<string>();
     while (page.hasMore) {
         if (page.nextKey === null)
             throw new Error(t("notes.full_sync_pagination_data_is_incomplete"));
-        if (pages++ >= 100)
-            throw new Error(t("notes.the_note_count_exceeds_the_per_sync_limit"));
+        if (requestedKeys.has(page.nextKey))
+            throw new Error(t("notes.full_sync_pagination_data_is_incomplete"));
+        requestedKeys.add(page.nextKey);
         page = await api.sync(0, {
             after: page.nextKey,
             snapshot: first.cursor,

@@ -944,6 +944,7 @@ async function prepareBundleAttachments(
     userId,
     candidates.map((candidate) => candidate.sourceId),
   )
+  const pendingCleanupIds = await loadPendingAttachmentCleanupIds(env.DB, userId)
   const idMap = new Map<string, string>()
   const created: CreatedImportedAttachment[] = []
   const reservedIds = new Set([...existingAttachments.values()].map((attachment) => attachment.id))
@@ -961,7 +962,11 @@ async function prepareBundleAttachments(
         addWarning(ctx.result, `${candidate.filename}: an existing attachment with this ID has different content, so a new attachment was restored`)
       }
 
-      let destinationId = existing ? newId() : candidate.sourceId
+      const pendingOldObject = pendingCleanupIds.has(candidate.sourceId)
+      let destinationId = existing || pendingOldObject ? newId() : candidate.sourceId
+      if (!existing && pendingOldObject) {
+        addWarning(ctx.result, `${candidate.filename}: restored with a new internal ID while old attachment bytes await cleanup`)
+      }
       while (
         reservedIds.has(destinationId) ||
         (destinationId !== candidate.sourceId && sourceIds.has(destinationId))
@@ -1051,6 +1056,26 @@ async function loadExistingAttachments(
     }
   }
   return attachments
+}
+
+async function loadPendingAttachmentCleanupIds(
+  db: D1Database,
+  userId: string,
+): Promise<Set<string>> {
+  const { results } = await db.prepare(
+    `SELECT object_key FROM attachment_cleanup WHERE user_id = ?1`,
+  ).bind(userId).all<{ object_key: string }>()
+  const prefixes = [`r2:${userId}/`, `kv:${userId}/`]
+  const ids = new Set<string>()
+  for (const row of results) {
+    const prefix = prefixes.find((candidate) => row.object_key.startsWith(candidate))
+    if (!prefix) continue
+    const filename = row.object_key.slice(prefix.length)
+    const separator = filename.indexOf('.')
+    const id = separator > 0 ? filename.slice(0, separator) : ''
+    if (isValidId(id)) ids.add(id)
+  }
+  return ids
 }
 
 async function existingAttachmentMatches(

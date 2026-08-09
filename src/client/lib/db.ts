@@ -36,6 +36,7 @@ let pendingShell: ShellData | null = null
 let pendingShellUserId: string | null = null
 let activeUserId: string | null = null
 const supportsUserNamespaces = typeof entries === 'function' && typeof delMany === 'function'
+let forceUserNamespaces = false
 
 export interface OutboxItem {
   id: string
@@ -93,7 +94,7 @@ async function safeSet(key: string, value: unknown): Promise<void> {
 }
 
 function userScopedKey(key: string, userId = activeUserId): string {
-  return userId && supportsUserNamespaces ? `user:${userId}:${key}` : key
+  return userId && (supportsUserNamespaces || forceUserNamespaces) ? `user:${userId}:${key}` : key
 }
 
 function isLegacyDataKey(key: unknown): key is string {
@@ -118,12 +119,25 @@ async function migrateLegacyData(userId: string): Promise<void> {
 
 async function bindLocalUser(userId: string): Promise<void> {
   if (activeUserId === userId) {
+    if (forceUserNamespaces && !supportsUserNamespaces) {
+      await clearLocalData()
+      forceUserNamespaces = false
+    }
     await set(KEY.userId, userId, store)
     return
   }
   if (!supportsUserNamespaces) {
     const storedUserId = await safeGet<string>(KEY.userId)
-    if (storedUserId !== userId) await clearLocalData()
+    if (storedUserId !== userId) {
+      try {
+        await clearLocalData()
+        forceUserNamespaces = false
+      } catch (error) {
+        activeUserId = userId
+        forceUserNamespaces = true
+        throw error
+      }
+    }
     activeUserId = userId
     await set(KEY.userId, userId, store)
     return
@@ -394,6 +408,7 @@ export const localDb = {
     try {
       await clearLocalData()
       activeUserId = null
+      forceUserNamespaces = false
     } catch {
     }
   },

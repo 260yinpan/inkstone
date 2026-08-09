@@ -232,14 +232,21 @@ export function createDemoBackend(): DemoBackend {
     state.cursor++
     return c.json(restored)
   })
-  app.post('/api/notes/:id/duplicate', (c) => {
+  app.post('/api/notes/:id/duplicate', async (c) => {
     const source = state.notes.get(c.req.param('id'))
     if (!source) return apiError(404, 'not_found', 'Note not found')
+    const body = await jsonBody(c.req.raw)
+    if (body.id !== undefined && (typeof body.id !== 'string' || !/^[0-9a-hjkmnp-tv-z]{26}$/.test(body.id))) {
+      return apiError(400, 'bad_request', 'id must be a valid note id')
+    }
+    const id = typeof body.id === 'string' ? body.id : newDemoId()
+    const existing = state.notes.get(id)
+    if (existing) return c.json(existing)
     const now = Date.now()
     const copy = refreshNote(
       {
         ...source,
-        id: newDemoId(),
+        id,
         rev: 1,
         createdAt: now,
         updatedAt: now,

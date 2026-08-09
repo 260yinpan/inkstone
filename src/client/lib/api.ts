@@ -229,20 +229,16 @@ async function saveDownload(format: 'json' | 'zip'): Promise<void> {
       return
     }
 
-    const anchor = document.createElement('a')
-    anchor.href = '/api/export?format=zip'
-    anchor.download = 'inkstone-backup.zip'
-    anchor.style.display = 'none'
-    document.body.append(anchor)
-    try {
-      anchor.click()
-    } finally {
-      anchor.remove()
-    }
+    const { response, filename } = await fetchDownload('/api/export?format=zip', 'inkstone-backup.zip')
+    await saveResponseDownload(response, filename)
     return
   }
 
   const { response, filename } = await fetchDownload('/api/export?format=json', 'inkstone-export.json')
+  await saveResponseDownload(response, filename)
+}
+
+async function saveResponseDownload(response: Response, filename: string): Promise<void> {
   const blob = await response.blob()
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')

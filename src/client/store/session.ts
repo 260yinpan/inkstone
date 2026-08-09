@@ -34,6 +34,7 @@ let settingsSaveInFlight = false
 let settingsRetryDelay = 1_500
 let settingsEpoch = 0
 let settingsSaveToken = 0
+let settingsSaveCompletion: Promise<void> = Promise.resolve()
 let settingsUserId: string | null = null
 let settingsRequestSequence = 0
 let sessionRequestSequence = 0
@@ -191,6 +192,10 @@ export const useSession = create<SessionState>((set, get) => ({
       }
 
       window.clearTimeout(saveTimer)
+      if (settingsSaveInFlight) await settingsSaveCompletion
+      // A failed in-flight save schedules a retry; run that patch once now so
+      // the pending-change confirmation reflects the latest durable state.
+      window.clearTimeout(saveTimer)
       await flushSettingsPatch(set, get)
       const unsaved = pending + (pendingSettingsPatch ? 1 : 0)
       if (unsaved > 0) {
@@ -252,6 +257,11 @@ async function flushSettingsPatch(set: SessionSetter, get: () => SessionState): 
   pendingSettingsShouldNotify = false
   inFlightSettingsPatch = outgoing
   settingsSaveInFlight = true
+  let resolveCompletion!: () => void
+  const completion = new Promise<void>((resolve) => {
+    resolveCompletion = resolve
+  })
+  settingsSaveCompletion = completion
   const epoch = settingsEpoch
   const token = ++settingsSaveToken
   const responseSequence = ++settingsRequestSequence
@@ -292,6 +302,7 @@ async function flushSettingsPatch(set: SessionSetter, get: () => SessionState): 
         saveTimer = window.setTimeout(() => void flushSettingsPatch(set, get), 0)
       }
     }
+    resolveCompletion()
   }
 }
 
@@ -302,6 +313,7 @@ function resetSettingsPersistence(userId: string | null): void {
   inFlightSettingsPatch = null
   pendingSettingsShouldNotify = false
   settingsSaveInFlight = false
+  settingsSaveCompletion = Promise.resolve()
   settingsRetryDelay = 1_500
   settingsUserId = userId
   settingsEpoch++

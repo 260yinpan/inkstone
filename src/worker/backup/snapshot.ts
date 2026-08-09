@@ -70,28 +70,18 @@ interface AttachmentSnapshotRow {
 
 const encoder = new TextEncoder()
 const NOTE_PAGE_SIZE = 100
+const ATTACHMENT_LOOKUP_BATCH = 200
 const ATTACHMENT_REFERENCE_RE =
   /\/api\/files\/([0-9a-hjkmnp-tv-z]{26})(?=$|[\s>)\]"'?#])/g
 
 export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot> {
-  const [folderResult, attachmentResult] = await env.DB.batch([
-    env.DB.prepare(
-      `SELECT f.id, f.parent_id, f.name, f.icon, f.color, f.position, f.created_at, f.updated_at
-         FROM folders f WHERE f.user_id = ?1 ORDER BY f.position ASC, f.id ASC`,
-    ).bind(userId),
-    env.DB.prepare(
-      `SELECT id, user_id, filename, mime, size, sha256, storage, created_at
-         FROM attachments WHERE user_id = ?1 ORDER BY created_at ASC, id ASC`,
-    ).bind(userId),
-  ])
-  const folders = (folderResult as D1Result<FolderRow>).results.map(toFolder)
-  const attachmentRows = (attachmentResult as D1Result<AttachmentSnapshotRow>).results
+  const folderResult = await env.DB.prepare(
+    `SELECT f.id, f.parent_id, f.name, f.icon, f.color, f.position, f.created_at, f.updated_at
+       FROM folders f WHERE f.user_id = ?1 ORDER BY f.position ASC, f.id ASC`,
+  ).bind(userId).all<FolderRow>()
+  const folders = folderResult.results.map(toFolder)
   const folderPaths = buildFolderPaths(folders)
   const attachmentsById = new Map<string, AttachmentSnapshotRow>()
-
-  for (const row of attachmentRows) {
-    attachmentsById.set(row.id, row)
-  }
 
   const attachmentPathByHash = new Map<string, string>()
   const attachmentPathById = new Map<string, string>()
@@ -110,6 +100,14 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
         WHERE n.user_id = ?1 AND n.id > ?2 ORDER BY n.id ASC LIMIT ?3`,
     ).bind(userId, afterId, NOTE_PAGE_SIZE).all<NoteRow>()
     if (!page.results.length) break
+
+    const missingAttachmentIds = new Set<string>()
+    for (const row of page.results) {
+      for (const id of extractAttachmentIds(row.content)) {
+        if (!attachmentsById.has(id)) missingAttachmentIds.add(id)
+      }
+    }
+    await loadReferencedAttachments(env.DB, userId, missingAttachmentIds, attachmentsById)
 
     for (const row of page.results) {
       const note = toNote(row)
@@ -252,6 +250,24 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
     bytes: allFiles.reduce((sum, file) => sum + file.byteLength, 0),
     stamp,
     createdAt: now,
+  }
+}
+
+async function loadReferencedAttachments(
+  db: D1Database,
+  userId: string,
+  ids: ReadonlySet<string>,
+  target: Map<string, AttachmentSnapshotRow>,
+): Promise<void> {
+  const values = [...ids]
+  for (let offset = 0; offset < values.length; offset += ATTACHMENT_LOOKUP_BATCH) {
+    const chunk = values.slice(offset, offset + ATTACHMENT_LOOKUP_BATCH)
+    const { results } = await db.prepare(
+      `SELECT id, user_id, filename, mime, size, sha256, storage, created_at
+         FROM attachments
+        WHERE user_id = ?1 AND id IN (SELECT value FROM json_each(?2))`,
+    ).bind(userId, JSON.stringify(chunk)).all<AttachmentSnapshotRow>()
+    for (const row of results) target.set(row.id, row)
   }
 }
 

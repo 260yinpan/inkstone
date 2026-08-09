@@ -1152,16 +1152,25 @@ function exportResponse(state: DemoState, format: 'json' | 'zip'): Response {
   }
   const data = createZip([
     { path: 'inkstone-export.json', data: encoder.encode(JSON.stringify(bundle, null, 2)) },
-    ...[...state.notes.values()].map((note) => ({
-      path: `notes/${safeFilename(note.title)}.md`,
-      data: encoder.encode(note.content),
-    })),
+    ...demoNoteEntries(state, encoder),
   ])
   return new Response(data as BodyInit, {
     headers: {
       'Content-Type': 'application/zip',
       'Content-Disposition': 'attachment; filename="inkstone-demo.zip"',
     },
+  })
+}
+
+function demoNoteEntries(state: DemoState, encoder: TextEncoder): Array<{ path: string, data: Uint8Array }> {
+  const used = new Set<string>()
+  return [...state.notes.values()].map((note) => {
+    const base = safeFilename(note.title)
+    let name = base
+    let suffix = 2
+    while (used.has(name.toLocaleLowerCase())) name = `${base} (${suffix++})`
+    used.add(name.toLocaleLowerCase())
+    return { path: `notes/${name}.md`, data: encoder.encode(note.content) }
   })
 }
 

@@ -440,6 +440,12 @@ export function createDemoBackend(): DemoBackend {
   app.get('/api/tags', (c) => c.json({ tags: listTags(state) }))
   app.post('/api/tags', async (c) => {
     const body = await jsonBody(c.req.raw)
+    if (body.id !== undefined && (typeof body.id !== 'string' || !/^[0-9a-hjkmnp-tv-z]{26}$/.test(body.id))) {
+      return apiError(400, 'bad_request', 'id must be a valid tag id')
+    }
+    const requestedId = typeof body.id === 'string' ? body.id : null
+    const existingById = requestedId ? listTags(state).find((tag) => tag.id === requestedId) : null
+    if (existingById) return c.json(existingById)
     const name = typeof body.name === 'string' ? body.name.trim().replace(/^#+/, '') : ''
     if (!name || /[\s#]/.test(name) || name.length > LIMITS.tagNameMaxLength) {
       return apiError(400, 'bad_request', 'Tag name is invalid')
@@ -447,7 +453,7 @@ export function createDemoBackend(): DemoBackend {
     const existing = listTags(state).find((tag) =>
       tag.name.localeCompare(name, undefined, { sensitivity: 'base' }) === 0)
     if (existing) return apiError(409, 'conflict', 'A tag with this name already exists')
-    const id = typeof body.id === 'string' ? body.id : newDemoId()
+    const id = requestedId ?? newDemoId()
     state.tagIds.set(name, id)
     state.tagColors.set(name, body.color === null || typeof body.color === 'string' ? body.color : null)
     state.cursor++

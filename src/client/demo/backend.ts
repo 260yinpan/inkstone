@@ -772,13 +772,18 @@ export function createDemoBackend(): DemoBackend {
     if (!state.notes.has(noteId)) return apiError(404, 'not_found', 'Note not found')
     const body = await jsonBody(c.req.raw)
     const existing = state.shares.get(noteId)
-    const expiresIn = typeof body.expiresIn === 'number' && body.expiresIn > 0 ? body.expiresIn : null
+    let expiresAt = existing?.info.expiresAt ?? null
+    if (body.expiresIn !== undefined) {
+      expiresAt = typeof body.expiresIn === 'number' && Number.isFinite(body.expiresIn) && body.expiresIn > 0
+        ? Date.now() + Math.min(body.expiresIn, 365 * 24 * 60 * 60 * 1000)
+        : null
+    }
     const info: ShareInfo = {
       slug: existing?.info.slug ?? `demo-${noteId}`,
       noteId,
       url: '',
       hasPassword: typeof body.password === 'string' ? Boolean(body.password) : existing?.info.hasPassword ?? false,
-      expiresAt: expiresIn ? Date.now() + expiresIn * 1000 : null,
+      expiresAt,
       views: existing?.info.views ?? 0,
       createdAt: existing?.info.createdAt ?? Date.now(),
     }

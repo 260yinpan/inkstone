@@ -1315,7 +1315,7 @@ async function updateImportedNote(
   ctx: ImportContext,
 ): Promise<'updated' | 'skipped' | 'conflict' | 'missing'> {
   const current = await c.env.DB.prepare(
-    `SELECT id, title, content, rev, position, is_pinned, is_starred,
+    `SELECT id, title, content, rev, position, is_pinned, is_starred, is_archived,
             created_at, updated_at, deleted_at
        FROM notes WHERE id = ?1 AND user_id = ?2`,
   ).bind(existing.id, userId).first<{
@@ -1326,6 +1326,7 @@ async function updateImportedNote(
     position: number
     is_pinned: number
     is_starred: number
+    is_archived: number
     created_at: number
     updated_at: number
     deleted_at: number | null
@@ -1360,7 +1361,7 @@ async function updateImportedNote(
     input.folderId,
     input.isPinned === undefined ? current.is_pinned : input.isPinned ? 1 : 0,
     input.isStarred === undefined ? current.is_starred : input.isStarred ? 1 : 0,
-    input.isArchived === true ? 1 : 0,
+    input.isArchived === undefined ? current.is_archived : input.isArchived ? 1 : 0,
     position,
     createdAt,
     updatedAt,

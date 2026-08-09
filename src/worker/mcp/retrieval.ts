@@ -104,6 +104,21 @@ export async function searchMcpNotes(
     ...hit,
     url: noteUrl(origin, hit.id),
   }))
+  if (mode === 'semantic') {
+    return {
+      results: semanticCandidates.slice(0, limit).map((hit) => ({
+        id: hit.id,
+        title: hit.title,
+        url: hit.url,
+        snippet: semanticSnippet(hit.excerpt),
+        score: hit.score,
+        rev: hit.rev,
+        updatedAt: hit.updatedAt,
+        source: 'semantic' as const,
+      })),
+      mode: 'semantic',
+    }
+  }
   const fused = fuseByRrf(lexicalHits, semanticCandidates)
   const results: McpSearchHit[] = fused.slice(0, limit).map(({ item, sources }) => {
     const lexicalHit = sources.has('lexical') && isLexicalHit(item) ? item : null

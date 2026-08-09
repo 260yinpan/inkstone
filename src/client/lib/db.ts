@@ -122,7 +122,8 @@ async function bindLocalUser(userId: string): Promise<void> {
     return
   }
   if (!supportsUserNamespaces) {
-    await clearLocalData()
+    const storedUserId = await safeGet<string>(KEY.userId)
+    if (storedUserId !== userId) await clearLocalData()
     activeUserId = userId
     await set(KEY.userId, userId, store)
     return

@@ -121,6 +121,12 @@ export class SyncEngine {
       this.schedulePull(payload.clientId === CLIENT_ID ? 700 : 400, false)
       return
     }
+    if (payload.type === 'site-changed') {
+      if (payload.clientId !== CLIENT_ID) {
+        void useSession.getState().refresh().catch(() => {})
+      }
+      return
+    }
     if (payload.type === 'outbox-result') {
       if (payload.targetClientId === CLIENT_ID) acknowledgeOutboxResult(payload)
       return

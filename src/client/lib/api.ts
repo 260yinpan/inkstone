@@ -289,6 +289,9 @@ export const api = {
       request<{ ok: true; registrationOpen: boolean }>('/api/settings/registration', {
         method: 'PUT',
         body: { enabled, password },
+      }).then((result) => {
+        publishBroadcast({ type: 'site-changed', clientId: CLIENT_ID })
+        return result
       }),
   },
 

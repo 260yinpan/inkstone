@@ -517,6 +517,7 @@ export type BroadcastPayload = (
   | { type: 'claim-leader'; clientId: string; at: number }
   | { type: 'settings-changed'; clientId: string }
   | { type: 'profile-changed'; clientId: string }
+  | { type: 'site-changed'; clientId: string }
   | {
       type: 'outbox-base-advanced'
       clientId: string

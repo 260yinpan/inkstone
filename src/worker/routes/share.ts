@@ -285,7 +285,7 @@ async function renderShareShell(
 
   const siteName = c.env.APP_NAME || 'Inkstone'
   const expired = row?.expires_at ? row.expires_at < Date.now() : false
-  const title = row && !expired ? publicShareTitle(row.title) : "Content unavailable"
+  const title = row && !expired && !row.password_hash ? publicShareTitle(row.title) : "Content unavailable"
   const description = row && !expired && !row.password_hash ? row.excerpt : ''
 
   const meta = [

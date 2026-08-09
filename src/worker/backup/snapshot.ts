@@ -291,8 +291,7 @@ async function readBackupFile(file: BackupFile): Promise<Uint8Array> {
 }
 
 export async function buildJsonExport(env: Env, userId: string): Promise<Uint8Array> {
-  const [noteRows, folderRows, tagRows, userRows] = await env.DB.batch([
-    env.DB.prepare(`SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.user_id = ?1 ORDER BY n.created_at ASC`).bind(userId),
+  const [folderRows, tagRows, userRows] = await env.DB.batch([
     env.DB.prepare(
       `SELECT f.id, f.parent_id, f.name, f.icon, f.color, f.position, f.created_at, f.updated_at
          FROM folders f WHERE f.user_id = ?1 AND f.deleted_at IS NULL ORDER BY f.position ASC`,
@@ -301,17 +300,49 @@ export async function buildJsonExport(env: Env, userId: string): Promise<Uint8Ar
     env.DB.prepare(`SELECT login, name FROM users WHERE id = ?1`).bind(userId),
   ])
   const user = (userRows.results[0] as { login: string; name: string } | undefined) ?? null
-  const bundle: ExportBundle = {
+  const metadata: Omit<ExportBundle, 'notes' | 'attachments'> = {
     format: 'inkstone-export',
     version: 1,
     exportedAt: Date.now(),
     user: { login: user?.login ?? 'unknown', name: user?.name ?? '' },
     folders: (folderRows as D1Result<FolderRow>).results.map(toFolder),
     tags: (tagRows as D1Result<TagRow>).results.map(toTag),
-    notes: (noteRows as D1Result<NoteRow>).results.map(toNote),
-    attachments: [],
   }
-  const bytes = encoder.encode(JSON.stringify(bundle, null, 2))
+  const chunks: Uint8Array[] = []
+  let byteLength = 0
+  const append = (value: string) => {
+    const chunk = encoder.encode(value)
+    byteLength += chunk.byteLength
+    assertBundleByteLengthCanBeRestored(byteLength)
+    chunks.push(chunk)
+  }
+
+  append(`${JSON.stringify(metadata).slice(0, -1)},"notes":[`)
+  let afterId = ''
+  let firstNote = true
+  while (true) {
+    const page = await env.DB.prepare(
+      `SELECT ${NOTE_COLUMNS_FULL} FROM notes n
+        WHERE n.user_id = ?1 AND n.id > ?2 ORDER BY n.id ASC LIMIT ?3`,
+    ).bind(userId, afterId, NOTE_PAGE_SIZE).all<NoteRow>()
+    if (!page.results.length) break
+
+    for (const row of page.results) {
+      append(`${firstNote ? '' : ','}${JSON.stringify(toNote(row))}`)
+      firstNote = false
+    }
+
+    afterId = page.results.at(-1)!.id
+    if (page.results.length < NOTE_PAGE_SIZE) break
+  }
+  append('],"attachments":[]}')
+
+  const bytes = new Uint8Array(byteLength)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
   assertBundleCanBeRestored(bytes)
   return bytes
 }
@@ -344,7 +375,11 @@ function assertArchiveSizesCanBeRestored(
 }
 
 export function assertBundleCanBeRestored(bundle: Uint8Array): void {
-  if (bundle.byteLength > LIMITS.importBundleMaxBytes) {
+  assertBundleByteLengthCanBeRestored(bundle.byteLength)
+}
+
+function assertBundleByteLengthCanBeRestored(byteLength: number): void {
+  if (byteLength > LIMITS.importBundleMaxBytes) {
     throw ApiError.tooLarge(
       `The JSON export exceeds ${formatBytes(LIMITS.importBundleMaxBytes)} restore limit`,
     )

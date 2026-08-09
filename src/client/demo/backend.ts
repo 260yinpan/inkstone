@@ -339,6 +339,9 @@ export function createDemoBackend(): DemoBackend {
     const now = Date.now()
     const siblings = demoFolderSiblings(state, parentId)
     const requestedName = typeof body.name === 'string' ? body.name.trim() : ''
+    if (requestedName.length > LIMITS.folderNameMaxLength) {
+      return apiError(400, 'bad_request', 'Folder name is too long')
+    }
     const name = requestedName || availableDemoFolderName(siblings, 'New folder')
     if (siblings.some((folder) => folder.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
       return apiError(409, 'conflict', 'A sibling already uses this name')
@@ -380,6 +383,9 @@ export function createDemoBackend(): DemoBackend {
       return apiError(400, 'bad_request', `Folder depth cannot exceed ${LIMITS.folderDepthMax} levels`)
     }
     const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : current.name
+    if (name.length > LIMITS.folderNameMaxLength) {
+      return apiError(400, 'bad_request', 'Folder name is too long')
+    }
     if (demoFolderSiblings(state, parentId, current.id).some(
       (folder) => folder.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
     )) return apiError(409, 'conflict', 'A sibling already uses this name')

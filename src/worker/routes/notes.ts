@@ -955,7 +955,7 @@ async function rewriteInboundWikiLinks(
         updated_at: number
         deleted_at: number | null
       }>()
-      if (!note) {
+      if (!note || note.deleted_at !== null) {
         complete = true
         break
       }

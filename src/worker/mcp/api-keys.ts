@@ -8,10 +8,12 @@
  * never stored or returned again, only its SHA-256 hash.
  */
 import { sha256Hex, toBase64Url } from '../lib/encoding'
+import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { getMcpPreferences, grantedMcpScopes, MCP_SUPPORTED_SCOPES } from './settings'
 
 const KEY_PREFIX = 'ink_'
+const ACTIVE_KEYS_MAX = 50
 // 32 random bytes encoded as unpadded base64url is exactly 43 characters.
 const KEY_TOKEN_RE = /^ink_[A-Za-z0-9_-]{43}$/
 
@@ -60,10 +62,17 @@ export async function createMcpApiKey(
   const now = Date.now()
   const preferences = await getMcpPreferences(db, userId)
   const scopes = grantedMcpScopes(MCP_SUPPORTED_SCOPES, preferences)
-  await db.prepare(
+  const inserted = await db.prepare(
     `INSERT INTO mcp_api_keys (id, user_id, name, key_hash, scopes, created_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
-  ).bind(id, userId, name, keyHash, scopes.join(' '), now).run()
+     SELECT ?1, ?2, ?3, ?4, ?5, ?6
+      WHERE (SELECT COUNT(*) FROM mcp_api_keys
+              WHERE user_id = ?2 AND revoked_at IS NULL) < ?7`,
+  ).bind(id, userId, name, keyHash, scopes.join(' '), now, ACTIVE_KEYS_MAX).run()
+  if (!inserted.meta.changes) {
+    throw ApiError.conflict(
+      `An account can have at most ${ACTIVE_KEYS_MAX} active MCP API keys`,
+    )
+  }
   return {
     record: { id, name, scopes, createdAt: now, lastUsedAt: null },
     token,

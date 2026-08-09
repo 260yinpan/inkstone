@@ -25,7 +25,12 @@ export async function createShareAssetSession(
          VALUES (?1, ?2, ?3, ?4, ?5)`,
       )
       .bind(await tokenId(token), slug, passwordHash, expiresAt, now),
-    db.prepare(`DELETE FROM share_asset_sessions WHERE expires_at <= ?1`).bind(now),
+    db.prepare(
+      `DELETE FROM share_asset_sessions WHERE id IN (
+         SELECT id FROM share_asset_sessions WHERE expires_at <= ?1
+          ORDER BY expires_at, id LIMIT 100
+       )`,
+    ).bind(now),
   ])
   return token
 }

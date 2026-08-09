@@ -838,6 +838,8 @@ export function createDemoBackend(): DemoBackend {
       return apiError(409, 'conflict', `Each account can configure at most ${LIMITS.backupTargetsMax} backup targets`)
     }
     const input = await jsonBody(c.req.raw) as unknown as BackupTargetInput
+    const invalid = demoBackupTargetError(input, true)
+    if (invalid) return apiError(400, 'bad_request', invalid)
     const target = createBackupTarget(input)
     state.backupTargets.set(target.id, target)
     return c.json(target, 201)
@@ -855,13 +857,25 @@ export function createDemoBackend(): DemoBackend {
     if (input.expectedUpdatedAt !== undefined && input.expectedUpdatedAt !== current.updatedAt) {
       return apiError(409, 'conflict', 'The backup target changed elsewhere. Refresh and try again')
     }
+    const changedType = input.type !== undefined && input.type !== current.type
+    const mergedInput: BackupTargetInput = {
+      type: input.type ?? current.type,
+      name: input.name ?? current.name,
+      enabled: input.enabled ?? current.enabled,
+      config: input.config
+        ? ({ ...current.config, ...input.config } as BackupTargetConfig)
+        : current.config,
+      secret: input.secret,
+    }
+    const invalid = demoBackupTargetError(mergedInput, changedType)
+    if (invalid) return apiError(400, 'bad_request', invalid)
     const updated: BackupTarget = {
       ...current,
-      type: input.type ?? current.type,
-      name: input.name?.trim() || current.name,
-      enabled: input.enabled ?? current.enabled,
-      config: input.config ? ({ ...current.config, ...input.config } as BackupTargetConfig) : current.config,
-      hasSecret: current.hasSecret || Boolean(input.secret),
+      type: mergedInput.type,
+      name: mergedInput.name.trim(),
+      enabled: mergedInput.enabled ?? true,
+      config: demoBackupConfig(mergedInput),
+      hasSecret: current.hasSecret || hasDemoBackupSecret(mergedInput.type, input.secret),
       updatedAt: Math.max(Date.now(), current.updatedAt + 1),
     }
     state.backupTargets.set(updated.id, updated)
@@ -1193,9 +1207,26 @@ function absoluteShare(info: ShareInfo, requestUrl: string): ShareInfo {
 
 function createBackupTarget(input: BackupTargetInput): BackupTarget {
   const now = Date.now()
-  const type = input.type === 's3' ? 's3' : 'webdav'
+  const type = input.type
+  const config = demoBackupConfig(input)
+  return {
+    id: newDemoId(),
+    type,
+    name: input.name.trim(),
+    enabled: input.enabled ?? true,
+    config,
+    hasSecret: hasDemoBackupSecret(type, input.secret),
+    lastRunAt: null,
+    lastStatus: null,
+    lastError: null,
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+function demoBackupConfig(input: BackupTargetInput): BackupTargetConfig {
   const mode: BackupMode = input.config.mode === 'mirror' ? 'mirror' : 'archive'
-  const config: BackupTargetConfig = type === 's3'
+  return input.type === 's3'
     ? {
         endpoint: input.config.endpoint ?? '',
         region: input.config.region ?? 'auto',
@@ -1210,19 +1241,38 @@ function createBackupTarget(input: BackupTargetInput): BackupTarget {
         prefix: input.config.prefix ?? '',
         mode,
       }
-  return {
-    id: newDemoId(),
-    type,
-    name: input.name?.trim() || 'Demo backup',
-    enabled: input.enabled ?? true,
-    config,
-    hasSecret: Boolean(input.secret),
-    lastRunAt: null,
-    lastStatus: null,
-    lastError: null,
-    createdAt: now,
-    updatedAt: now,
+}
+
+function demoBackupTargetError(input: BackupTargetInput, requireSecret: boolean): string | null {
+  if (input.type !== 's3' && input.type !== 'webdav') return 'type must be s3 or webdav'
+  if (typeof input.name !== 'string' || !input.name.trim()) return 'Enter a name'
+  if (input.name.trim().length > 120) return 'The name must not exceed 120 characters'
+  if (!input.config || typeof input.config !== 'object' || Array.isArray(input.config)) {
+    return 'config must be an object'
   }
+  if (input.type === 's3') {
+    if (typeof input.config.bucket !== 'string' || !input.config.bucket.trim()) {
+      return 'Enter a bucket name'
+    }
+    if (requireSecret && !hasDemoBackupSecret('s3', input.secret)) {
+      return 'Enter an Access Key and Secret Key'
+    }
+    return null
+  }
+  if (typeof input.config.url !== 'string' || !input.config.url.trim()) return 'Enter a WebDAV URL'
+  if (typeof input.config.username !== 'string' || !input.config.username.trim()) return 'Enter a username'
+  if (requireSecret && !hasDemoBackupSecret('webdav', input.secret)) return 'Enter a password'
+  return null
+}
+
+function hasDemoBackupSecret(
+  type: BackupTargetInput['type'],
+  secret: BackupTargetInput['secret'],
+): boolean {
+  if (type === 's3') {
+    return Boolean(secret?.accessKeyId?.trim() && secret.secretAccessKey?.trim())
+  }
+  return Boolean(secret?.password?.trim())
 }
 
 function exportBundle(state: DemoState): ExportBundle {

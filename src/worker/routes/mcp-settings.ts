@@ -137,7 +137,12 @@ mcpSettingsRoutes.delete('/grants/:id', async (c) => {
 mcpSettingsRoutes.post('/grants/revoke-all', async (c) => {
   if (!c.env.OAUTH_PROVIDER) throw new ApiError(503, 'internal', 'OAuth is unavailable')
   const grants = await collectGrantIds(c.env.OAUTH_PROVIDER, c.get('userId'))
-  await Promise.all(grants.map((id) => c.env.OAUTH_PROVIDER!.revokeGrant(id, c.get('userId'))))
+  for (let offset = 0; offset < grants.length; offset += 25) {
+    await Promise.all(
+      grants.slice(offset, offset + 25)
+        .map((id) => c.env.OAUTH_PROVIDER!.revokeGrant(id, c.get('userId'))),
+    )
+  }
   return c.json({ ok: true, revoked: grants.length })
 })
 
@@ -169,11 +174,16 @@ async function collectGrantIds(
 ): Promise<string[]> {
   const ids: string[] = []
   let cursor: string | undefined
+  const seenCursors = new Set<string>()
   do {
     const page = await oauth.listUserGrants(userId, { limit: 100, cursor })
     ids.push(...page.items.map((grant) => grant.id))
     cursor = page.cursor
-  } while (cursor && ids.length < 500)
+    if (cursor && seenCursors.has(cursor)) {
+      throw new Error('OAuth grant pagination returned a repeated cursor')
+    }
+    if (cursor) seenCursors.add(cursor)
+  } while (cursor)
   return ids
 }
 

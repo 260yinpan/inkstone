@@ -634,7 +634,12 @@ async function readStoredDatabaseState(db: D1Database): Promise<DatabaseState | 
 }
 
 function schemaFingerprint(): string {
-  const source = [...SCHEMA_STATEMENTS, FTS_STATEMENT].join('\n')
+  const migrationSource = SCHEMA_MIGRATIONS.map((migration) => JSON.stringify({
+    version: migration.version,
+    statements: migration.statements,
+    skipIfColumnExists: migration.skipIfColumnExists ?? null,
+  }))
+  const source = [...SCHEMA_STATEMENTS, FTS_STATEMENT, ...migrationSource].join('\n')
   let hash = 0x811c9dc5
   for (let index = 0; index < source.length; index++) {
     hash = Math.imul(hash ^ source.charCodeAt(index), 0x01000193)

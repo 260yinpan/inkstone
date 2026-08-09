@@ -92,15 +92,34 @@ function loadPreferences(): GraphPreferences {
   try {
     const stored = JSON.parse(localStorage.getItem(GRAPH_PREFS_KEY) ?? '{}') as Partial<GraphPreferences>
     return {
-      ...DEFAULT_PREFERENCES,
-      ...stored,
       mode: stored.mode === 'local' ? 'local' : 'global',
+      depth: boundedPreference(stored.depth, DEFAULT_PREFERENCES.depth, 1, 3),
+      includeOrphans: booleanPreference(stored.includeOrphans, DEFAULT_PREFERENCES.includeOrphans),
+      includeUnresolved: booleanPreference(stored.includeUnresolved, DEFAULT_PREFERENCES.includeUnresolved),
+      arrows: booleanPreference(stored.arrows, DEFAULT_PREFERENCES.arrows),
+      labels: booleanPreference(stored.labels, DEFAULT_PREFERENCES.labels),
       groupBy: stored.groupBy === 'folder' || stored.groupBy === 'tag' ? stored.groupBy : 'none',
-      depth: Math.min(3, Math.max(1, Number(stored.depth) || 1)),
+      folderId: typeof stored.folderId === 'string' && /^[0-9a-hjkmnp-tv-z]{26}$/.test(stored.folderId)
+        ? stored.folderId
+        : '',
+      tag: typeof stored.tag === 'string' ? truncateText(stored.tag.trim(), 60) : '',
+      repulsion: boundedPreference(stored.repulsion, DEFAULT_PREFERENCES.repulsion, 300, 1800),
+      linkDistance: boundedPreference(stored.linkDistance, DEFAULT_PREFERENCES.linkDistance, 40, 150),
+      nodeScale: boundedPreference(stored.nodeScale, DEFAULT_PREFERENCES.nodeScale, 0.7, 1.8),
     }
   } catch {
     return DEFAULT_PREFERENCES
   }
+}
+
+function boundedPreference(value: unknown, fallback: number, min: number, max: number): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(max, Math.max(min, value))
+    : fallback
+}
+
+function booleanPreference(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback
 }
 
 function nodeColor(node: CanvasNode, groupBy: GroupBy, fallback: string): string {

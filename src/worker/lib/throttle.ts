@@ -89,7 +89,12 @@ export async function consumeAttemptBudget(
     ),
   )
   statements.push(
-    db.prepare(`DELETE FROM login_attempts WHERE last_fail_at < ?1`).bind(now - RETENTION_MS),
+    db.prepare(
+      `DELETE FROM login_attempts WHERE key IN (
+         SELECT key FROM login_attempts
+          WHERE last_fail_at < ?1 ORDER BY last_fail_at, key LIMIT 100
+       )`,
+    ).bind(now - RETENTION_MS),
   )
   await db.batch(statements)
   await assertNotLocked(db, targets.map((target) => target.key))
@@ -124,7 +129,12 @@ export async function recordLoginFailure(
     db.prepare(sql).bind(target.key, now, WINDOW_MS, target.freeFails),
   )
   statements.push(
-    db.prepare(`DELETE FROM login_attempts WHERE last_fail_at < ?1`).bind(now - RETENTION_MS),
+    db.prepare(
+      `DELETE FROM login_attempts WHERE key IN (
+         SELECT key FROM login_attempts
+          WHERE last_fail_at < ?1 ORDER BY last_fail_at, key LIMIT 100
+       )`,
+    ).bind(now - RETENTION_MS),
   )
   await db.batch(statements)
 }

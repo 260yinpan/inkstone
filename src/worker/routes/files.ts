@@ -5,7 +5,7 @@ import { extractAttachmentIds } from '@shared/markdown-utils'
 import type { Attachment } from '@shared/types'
 import {
   hasAttachmentStorage,
-  readAttachmentObject,
+  readAttachmentObjectStream,
 } from '../attachments/backend'
 import { drainAttachmentCleanup } from '../attachments/cleanup'
 import {
@@ -255,9 +255,9 @@ filesRoutes.get('/:id', async (c) => {
       `${row.storage === 'r2' ? 'R2' : 'Workers KV'} attachment storage is not bound, so the attachment cannot be read`,
     )
   }
-  const bytes = await readAttachmentObject(c.env, row.storage, attachmentObjectKey(row))
-  if (!bytes) throw ApiError.notFound('Attachment data is missing')
-  return new Response(bytes as BodyInit, { headers })
+  const object = await readAttachmentObjectStream(c.env, row.storage, attachmentObjectKey(row))
+  if (!object) throw ApiError.notFound('Attachment data is missing')
+  return new Response(object.body as BodyInit, { headers })
 })
 
 

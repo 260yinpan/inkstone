@@ -414,12 +414,13 @@ function semanticWhere(userId: string, filters: SemanticFilters): { binds: unkno
   for (const tag of filters.tags ?? []) {
     binds.push(tag)
     where += ` AND EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
-        WHERE nt.note_id = n.id AND t.name = ?${binds.length})`
+        WHERE nt.note_id = n.id AND t.user_id = n.user_id
+          AND t.name = ?${binds.length} COLLATE NOCASE)`
   }
   if (filters.folder) {
     binds.push(filters.folder)
     where += ` AND EXISTS (SELECT 1 FROM folders f WHERE f.id = n.folder_id
-        AND f.name = ?${binds.length} AND f.user_id = n.user_id)`
+        AND f.name = ?${binds.length} COLLATE NOCASE AND f.user_id = n.user_id)`
   }
   return { binds, where }
 }

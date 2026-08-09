@@ -28,7 +28,12 @@ export async function createSession(db: D1Database, userId: string): Promise<str
     .bind(await hashToken(token), userId, now + SESSION_TTL_MS, now)
     .run()
 
-  await db.prepare(`DELETE FROM sessions WHERE expires_at < ?1`).bind(now).run()
+  await db.prepare(
+    `DELETE FROM sessions WHERE id IN (
+       SELECT id FROM sessions WHERE expires_at < ?1
+        ORDER BY expires_at, id LIMIT 100
+     )`,
+  ).bind(now).run()
   return token
 }
 

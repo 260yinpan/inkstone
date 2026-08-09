@@ -778,16 +778,18 @@ export function createDemoBackend(): DemoBackend {
         ? Date.now() + Math.min(body.expiresIn, 365 * 24 * 60 * 60 * 1000)
         : null
     }
+    const password = body.password === null || typeof body.password === 'string'
+      ? body.password || null
+      : existing?.password ?? null
     const info: ShareInfo = {
       slug: existing?.info.slug ?? `demo-${noteId}`,
       noteId,
       url: '',
-      hasPassword: typeof body.password === 'string' ? Boolean(body.password) : existing?.info.hasPassword ?? false,
+      hasPassword: Boolean(password),
       expiresAt,
       views: existing?.info.views ?? 0,
       createdAt: existing?.info.createdAt ?? Date.now(),
     }
-    const password = typeof body.password === 'string' ? body.password || null : existing?.password ?? null
     state.shares.set(noteId, { info, password })
     return c.json({ share: absoluteShare(info, c.req.url) })
   })

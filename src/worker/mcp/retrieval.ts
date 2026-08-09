@@ -230,9 +230,10 @@ export async function readMcpNote(
     if (headingIndex < 0) throw ApiError.notFound(`Section not found: ${input.section}`)
     selectedSection = outline[headingIndex]
     const lines = lineOffsets(note.content)
-    start = lines[selectedSection.line - 1] ?? 0
+    const sectionStart = lines[selectedSection.line - 1] ?? 0
     const next = outline.slice(headingIndex + 1).find((item) => item.level <= selectedSection!.level)
     end = next ? (lines[next.line - 1] ?? note.content.length) : note.content.length
+    start = input.cursor ? clampInteger(start, sectionStart, end) : sectionStart
   } else if (input.startLine !== undefined || input.endLine !== undefined) {
     const lines = lineOffsets(note.content)
     const startLine = clampInteger(input.startLine ?? 1, 1, lines.length)

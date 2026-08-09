@@ -11,6 +11,7 @@ import type { AppLocale } from '@shared/types'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { timingSafeEqual } from '../lib/encoding'
+import { FORM_BODY_LIMITS, readUrlEncodedFormWithinLimit } from '../lib/request'
 import {
   getMcpPreferences,
   grantedMcpScopes,
@@ -71,15 +72,15 @@ mcpAuthorizeRoutes.post('/authorize', async (c) => {
   }
   const parsed = await parseAuthorization(c.req.raw, c.env.OAUTH_PROVIDER)
   if (parsed instanceof Response) return parsed
-  const body = await c.req.parseBody({ all: true })
-  const submittedCsrf = singleFormValue(body.csrf)
+  const body = await readUrlEncodedFormWithinLimit(c.req, FORM_BODY_LIMITS.authorization)
+  const submittedCsrf = body.get('csrf') ?? ''
   const storedCsrf = getCookie(c, CSRF_COOKIE) ?? ''
   if (!submittedCsrf || !storedCsrf || !timingSafeEqual(submittedCsrf, storedCsrf)) {
     throw ApiError.forbidden('Authorization form expired. Start the connection again.')
   }
   setCookie(c, CSRF_COOKIE, '', { path: '/authorize', maxAge: 0 })
 
-  if (singleFormValue(body.decision) !== 'approve') {
+  if (body.get('decision') !== 'approve') {
     return Response.redirect(
       oauthErrorRedirect(
         parsed,
@@ -92,7 +93,7 @@ mcpAuthorizeRoutes.post('/authorize', async (c) => {
   }
   const client = await c.env.OAUTH_PROVIDER!.lookupClient(parsed.clientId)
   if (!client) return html(c, errorPage(copy.unknownClient, locale, c.req.url), 400)
-  const selected = formValues(body.scope).filter((scope) =>
+  const selected = body.getAll('scope').filter((scope) =>
     (MCP_SUPPORTED_SCOPES as readonly string[]).includes(scope),
   )
   const preferences = await getMcpPreferences(c.env.DB, user.id)
@@ -440,16 +441,6 @@ function assertSameOrigin(request: Request): void {
 function randomToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(24))
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
-}
-
-function singleFormValue(value: string | File | (string | File)[] | undefined): string {
-  const first = Array.isArray(value) ? value[0] : value
-  return typeof first === 'string' ? first : ''
-}
-
-function formValues(value: string | File | (string | File)[] | undefined): string[] {
-  const values = Array.isArray(value) ? value : value === undefined ? [] : [value]
-  return values.filter((item): item is string => typeof item === 'string')
 }
 
 function escapeHtml(value: string): string {

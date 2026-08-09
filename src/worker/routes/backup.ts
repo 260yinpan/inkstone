@@ -316,7 +316,7 @@ function pickSecret(body: BackupTargetInput): Record<string, string> {
 
 function normalizeConfig(body: BackupTargetInput): Record<string, unknown> {
   const c = body.config ?? {}
-  const mode = c.mode === 'mirror' ? 'mirror' : 'archive'
+  const mode = 'archive'
   if (body.type === 's3') {
     return {
       endpoint: str(c.endpoint),

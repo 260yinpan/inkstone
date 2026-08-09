@@ -313,6 +313,12 @@ export function createDemoBackend(): DemoBackend {
   app.get('/api/folders', (c) => c.json({ folders: listFolders(state) }))
   app.post('/api/folders', async (c) => {
     const body = await jsonBody(c.req.raw)
+    if (body.id !== undefined && (typeof body.id !== 'string' || !/^[0-9a-hjkmnp-tv-z]{26}$/.test(body.id))) {
+      return apiError(400, 'bad_request', 'id must be a valid folder id')
+    }
+    const requestedId = typeof body.id === 'string' ? body.id : null
+    const existing = requestedId ? state.folders.get(requestedId) : null
+    if (existing) return c.json(existing)
     const parentId = body.parentId === null || body.parentId === undefined
       ? null
       : typeof body.parentId === 'string' && state.folders.has(body.parentId)
@@ -330,7 +336,7 @@ export function createDemoBackend(): DemoBackend {
       return apiError(409, 'conflict', 'A sibling already uses this name')
     }
     const folder: Folder = {
-      id: newDemoId(),
+      id: requestedId ?? newDemoId(),
       parentId,
       name,
       icon: typeof body.icon === 'string' ? body.icon : null,

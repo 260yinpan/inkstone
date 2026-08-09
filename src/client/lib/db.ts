@@ -412,10 +412,14 @@ export const localDb = {
   async clear(): Promise<void> {
     try {
       await clearLocalData()
-      activeUserId = null
-      forceUserNamespaces = false
     } catch {
+      await Promise.allSettled([
+        del(KEY.session, store),
+        del(KEY.userId, store),
+      ])
     }
+    activeUserId = null
+    forceUserNamespaces = false
   },
 }
 

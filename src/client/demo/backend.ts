@@ -89,6 +89,9 @@ export function createDemoBackend(): DemoBackend {
     if (typeof body.newPassword !== 'string' || body.newPassword.length < 8) {
       return apiError(400, 'weak_password', 'The new password must contain at least 8 characters')
     }
+    if (body.newPassword.length > LIMITS.passwordMaxLength) {
+      return apiError(400, 'weak_password', 'The new password is too long')
+    }
     state.password = body.newPassword
     return c.json({ ok: true as const })
   })
@@ -777,6 +780,12 @@ export function createDemoBackend(): DemoBackend {
       expiresAt = typeof body.expiresIn === 'number' && Number.isFinite(body.expiresIn) && body.expiresIn > 0
         ? Date.now() + Math.min(body.expiresIn, 365 * 24 * 60 * 60 * 1000)
         : null
+    }
+    if (typeof body.password === 'string' && body.password.length > LIMITS.passwordMaxLength) {
+      return apiError(400, 'bad_request', `The access password must not exceed ${LIMITS.passwordMaxLength} characters`)
+    }
+    if (typeof body.password === 'string' && body.password.length > 0 && body.password.length < 4) {
+      return apiError(400, 'bad_request', 'The access password must be at least 4 characters')
     }
     const password = body.password === null || typeof body.password === 'string'
       ? body.password || null

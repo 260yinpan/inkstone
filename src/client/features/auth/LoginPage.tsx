@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { Loader2, TriangleAlert } from 'lucide-react'
+import { LIMITS } from '@shared/constants'
 import { Logo } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { cn } from '../../lib/cn'
@@ -98,6 +99,7 @@ export function LoginPage() {
             aria-label={t("common.password")}
             type="password"
             value={password}
+            maxLength={LIMITS.passwordMaxLength}
             onChange={(event) => setPassword(event.target.value)}
             disabled={busy}
             placeholder={registerMode ? t("auth.password_minimum_8_characters") : t("common.password")}
@@ -108,6 +110,7 @@ export function LoginPage() {
               aria-label={t("auth.confirm_password")}
               type="password"
               value={confirmation}
+              maxLength={LIMITS.passwordMaxLength}
               onChange={(event) => setConfirmation(event.target.value)}
               disabled={busy}
               placeholder={t("auth.confirm_password")}

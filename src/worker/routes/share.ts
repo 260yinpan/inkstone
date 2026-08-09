@@ -1,5 +1,6 @@
 import { Hono, type Context } from 'hono'
 import { setCookie } from 'hono/cookie'
+import { LIMITS } from '@shared/constants'
 import type { PublicNote, ShareInfo } from '@shared/types'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
@@ -82,8 +83,8 @@ shareManageRoutes.post('/:noteId', async (c) => {
   if (body.password !== undefined && body.password !== null && typeof body.password !== 'string') {
     throw ApiError.badRequest('password must be a string or null')
   }
-  if (typeof body.password === 'string' && body.password.length > 128) {
-    throw ApiError.badRequest('The access password must not exceed 128 characters')
+  if (typeof body.password === 'string' && body.password.length > LIMITS.passwordMaxLength) {
+    throw ApiError.badRequest(`The access password must not exceed ${LIMITS.passwordMaxLength} characters`)
   }
   if (typeof body.password === 'string' && body.password.length > 0 && body.password.length < 4) {
     throw ApiError.badRequest('The access password must be at least 4 characters')
@@ -158,7 +159,9 @@ shareRoutes.post('/:slug', async (c) => {
   const slug = c.req.param('slug')
   if (!isValidSlug(slug)) throw ApiError.notFound('The link does not exist or has been revoked')
   const body = await readOptionalJson<{ password?: string }>(c, JSON_BODY_LIMITS.small, {})
-  const password = typeof body.password === 'string' ? body.password.slice(0, 128) : ''
+  const password = typeof body.password === 'string'
+    ? body.password.slice(0, LIMITS.passwordMaxLength)
+    : ''
 
   const share = await c.env.DB.prepare(`SELECT * FROM shares WHERE slug = ?1`)
     .bind(slug)

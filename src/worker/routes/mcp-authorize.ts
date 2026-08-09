@@ -6,6 +6,7 @@ import {
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { getCookie, setCookie } from 'hono/cookie'
+import { LIMITS } from '@shared/constants'
 import type { AppLocale } from '@shared/types'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
@@ -252,7 +253,7 @@ function loginPage(clientName: string, locale: AppLocale, currentUrl: string): s
         <section class="form-section" aria-labelledby="account-title">
           <h2 id="account-title">${copy.inkstoneAccount}</h2>
           <label class="field"><span>${copy.username}</span><input name="username" autocomplete="username" maxlength="32" required autofocus></label>
-          <label class="field"><span>${copy.password}</span><input name="password" type="password" autocomplete="current-password" maxlength="128" required></label>
+          <label class="field"><span>${copy.password}</span><input name="password" type="password" autocomplete="current-password" maxlength="${LIMITS.passwordMaxLength}" required></label>
         </section>
         <p id="error" class="error" role="alert"></p>
         <button class="primary wide" type="submit">${copy.signInContinue}</button>

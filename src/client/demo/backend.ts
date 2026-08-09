@@ -17,6 +17,7 @@ import type {
   BackupTarget,
   BackupTargetConfig,
   BackupTargetInput,
+  BackupTargetPatchInput,
   ExportAttachment,
   ExportBundle,
   Folder,
@@ -844,7 +845,16 @@ export function createDemoBackend(): DemoBackend {
   app.patch('/api/backup/targets/:id', async (c) => {
     const current = state.backupTargets.get(c.req.param('id'))
     if (!current) return apiError(404, 'not_found', 'Backup target not found')
-    const input = await jsonBody(c.req.raw) as unknown as Partial<BackupTargetInput>
+    const input = await jsonBody(c.req.raw) as unknown as BackupTargetPatchInput
+    if (
+      input.expectedUpdatedAt !== undefined &&
+      (!Number.isSafeInteger(input.expectedUpdatedAt) || input.expectedUpdatedAt < 0)
+    ) {
+      return apiError(400, 'bad_request', 'expectedUpdatedAt must be a non-negative integer')
+    }
+    if (input.expectedUpdatedAt !== undefined && input.expectedUpdatedAt !== current.updatedAt) {
+      return apiError(409, 'conflict', 'The backup target changed elsewhere. Refresh and try again')
+    }
     const updated: BackupTarget = {
       ...current,
       type: input.type ?? current.type,
@@ -852,7 +862,7 @@ export function createDemoBackend(): DemoBackend {
       enabled: input.enabled ?? current.enabled,
       config: input.config ? ({ ...current.config, ...input.config } as BackupTargetConfig) : current.config,
       hasSecret: current.hasSecret || Boolean(input.secret),
-      updatedAt: Date.now(),
+      updatedAt: Math.max(Date.now(), current.updatedAt + 1),
     }
     state.backupTargets.set(updated.id, updated)
     return c.json(updated)

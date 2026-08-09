@@ -41,6 +41,12 @@ interface AttachmentRow {
 const ATTACHMENT_LIST_PAGE_SIZE = 500
 const ATTACHMENT_SCAN_PAGE_SIZE = 100
 
+function encodeContentDispositionFilename(filename: string): string {
+  return encodeURIComponent(filename).replace(/['()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  )
+}
+
 function parseAttachmentListCursor(value: string | undefined): { createdAt: number; id: string } | null {
   if (!value) return null
   const match = /^(\d{1,16})\.([0-9a-hjkmnp-tv-z]{26})$/.exec(value)
@@ -244,7 +250,7 @@ filesRoutes.get('/:id', async (c) => {
   const headers = new Headers({
     'Content-Type': row.mime,
     'Cache-Control': 'private, no-store',
-    'Content-Disposition': `${isInlineSafe(row.mime) ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(row.filename)}`,
+    'Content-Disposition': `${isInlineSafe(row.mime) ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeContentDispositionFilename(row.filename)}`,
     'X-Content-Type-Options': 'nosniff',
   })
 

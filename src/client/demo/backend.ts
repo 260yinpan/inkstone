@@ -722,6 +722,14 @@ export function createDemoBackend(): DemoBackend {
     })
   })
 
+  app.get('/api/update', (c) => c.json({
+    currentVersion: APP_VERSION,
+    latestVersion: null,
+    updateUrl: null,
+    checkedAt: null,
+    status: 'unavailable' as const,
+  }))
+
   app.get('/api/share/:noteId', (c) => {
     const share = state.shares.get(c.req.param('noteId'))
     return c.json({ share: share ? absoluteShare(share.info, c.req.url) : null })

@@ -5,6 +5,7 @@ import { organizerColorOrNull } from '@shared/organizer-colors'
 import {
   deriveExcerpt,
   deriveTitle,
+  extractAttachmentIds,
   extractWikiLinks,
   normalizeLinkKey,
   replaceTagInContent,
@@ -627,11 +628,11 @@ export function createDemoBackend(): DemoBackend {
   })
 
   app.post('/api/files/prune', (c) => {
+    const references = attachmentReferenceCounts(state)
     let removed = 0
     let freedBytes = 0
     for (const [id, attachment] of state.attachments) {
-      const referenced = [...state.notes.values()].some((note) => note.content.includes(attachment.meta.url))
-      if (referenced) continue
+      if ((references.get(id) ?? 0) > 0) continue
       revokeAttachment(attachment.meta.url)
       state.attachments.delete(id)
       removed++
@@ -639,7 +640,16 @@ export function createDemoBackend(): DemoBackend {
     }
     return c.json({ removed, freedBytes })
   })
-  app.get('/api/files', (c) => c.json({ files: [...state.attachments.values()].map((item) => item.meta) }))
+  app.get('/api/files', (c) => {
+    const references = attachmentReferenceCounts(state)
+    return c.json({
+      files: [...state.attachments.values()].map((item) => ({
+        ...item.meta,
+        references: references.get(item.meta.id) ?? 0,
+      })),
+      nextCursor: null,
+    })
+  })
   app.post('/api/files', async (c) => {
     const form = await c.req.raw.formData()
     const file = form.get('file')
@@ -1033,6 +1043,17 @@ function folderDescendants(state: DemoState, rootId: string): Set<string> {
     }
   }
   return ids
+}
+
+function attachmentReferenceCounts(state: DemoState): Map<string, number> {
+  const references = new Map<string, number>()
+  for (const note of state.notes.values()) {
+    for (const id of extractAttachmentIds(note.content)) {
+      if (!state.attachments.has(id)) continue
+      references.set(id, (references.get(id) ?? 0) + 1)
+    }
+  }
+  return references
 }
 
 async function browserFileUrl(file: File): Promise<string> {

@@ -882,7 +882,9 @@ export function createDemoBackend(): DemoBackend {
     return c.json(updated)
   })
   app.delete('/api/backup/targets/:id', (c) => {
-    state.backupTargets.delete(c.req.param('id'))
+    if (!state.backupTargets.delete(c.req.param('id'))) {
+      return apiError(404, 'not_found', 'Backup target not found')
+    }
     return c.json({ ok: true as const })
   })
   app.post('/api/backup/test', (c) => c.json({ ok: true, message: 'Demo connection succeeded', latencyMs: 24 }))

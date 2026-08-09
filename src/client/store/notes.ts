@@ -268,11 +268,14 @@ export const useNotes = create<NotesState>((set, get) => ({
 
                         let catchup = snapshot.cursor > 0 ? await api.sync(snapshot.cursor) : null;
                         const increments: SyncResponse[] = [];
-                        let catchupBatches = 0;
+                        const catchupCursors = new Set<number>();
                         while (catchup && !catchup.full) {
                             increments.push(catchup);
-                            if (!catchup.hasMore || ++catchupBatches >= 20)
+                            if (!catchup.hasMore)
                                 break;
+                            if (catchupCursors.has(catchup.cursor))
+                                throw new Error(t("notes.sync_pagination_data_is_incomplete"));
+                            catchupCursors.add(catchup.cursor);
                             catchup = await api.sync(catchup.cursor);
                         }
                         if (catchup?.full) {
@@ -289,9 +292,17 @@ export const useNotes = create<NotesState>((set, get) => ({
                     }
                     get().applySync(payload);
 
-                    let guard = 0;
-                    while (payload.hasMore && guard++ < 20) {
-                        payload = await api.sync(get().cursor);
+                    const incrementalCursors = new Set<number>();
+                    while (payload.hasMore) {
+                        if (incrementalCursors.has(payload.cursor))
+                            throw new Error(t("notes.sync_pagination_data_is_incomplete"));
+                        incrementalCursors.add(payload.cursor);
+                        const next = await api.sync(payload.cursor);
+                        if (next.full) {
+                            forcePullQueued = true;
+                            break;
+                        }
+                        payload = next;
                         get().applySync(payload);
                     }
                     set({ online: true });

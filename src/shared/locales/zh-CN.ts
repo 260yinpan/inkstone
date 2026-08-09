@@ -341,6 +341,7 @@ export const ZH_CN_MESSAGES = {
     "notes.failed_to_open_note": "打开笔记失败",
     "notes.filter_in_this_view": "在此视图中筛选…",
     "notes.full_sync_pagination_data_is_incomplete": "全量同步分页信息不完整",
+    "notes.sync_pagination_data_is_incomplete": "同步分页信息不完整",
     "notes.keep_notes_here_when_you_want_them_out_of_the_way_but_not_deleted": "暂时不看但又不想删的笔记可以放这里",
     "notes.keep_this_page_open_and_reconnect_as_soon_as_possible_closing_it_may_mak": "请保持页面打开并尽快恢复网络，否则关闭页面后内容可能无法恢复。",
     "notes.modified": "按修改时间",

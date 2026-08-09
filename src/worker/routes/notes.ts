@@ -1062,7 +1062,7 @@ function applyPatchRow(
         break
     }
   }
-  if (tagNames) next.tag_names = tagNames.join('\u0001')
+  if (tagNames !== null) next.tag_names = tagNames.join('\u0001')
   return next
 }
 

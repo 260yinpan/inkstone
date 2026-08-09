@@ -123,15 +123,25 @@ export async function enqueueNoteIndex(
   kind: AiIndexKind,
   now = Date.now(),
 ): Promise<void> {
+  await noteIndexQueueStatement(db, userId, noteId, kind, now).run()
+}
+
+export function noteIndexQueueStatement(
+  db: D1Database,
+  userId: string,
+  noteId: string,
+  kind: AiIndexKind,
+  now = Date.now(),
+): D1PreparedStatement {
   const guard = kind === 'embed'
     ? ` WHERE EXISTS (SELECT 1 FROM app_meta WHERE key = ?5 AND value = '1')`
     : ''
-  await db.prepare(
+  return db.prepare(
     `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
      SELECT ?1, ?2, ?3,
        MAX(?4, COALESCE((SELECT created_at + 1 FROM ai_index_queue
          WHERE user_id = ?1 AND note_id = ?2), ?4))${guard}`,
-  ).bind(userId, noteId, kind, now, aiSearchPrefKey(userId)).run()
+  ).bind(userId, noteId, kind, now, aiSearchPrefKey(userId))
 }
 
 export async function enqueueAllNotesForIndex(

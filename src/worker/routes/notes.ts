@@ -26,7 +26,7 @@ import { isValidId, newId } from '../lib/id'
 import { broadcastCursor, scheduleFtsDrain } from '../lib/notify'
 import { assertContentSize, clampInt, JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
-import { enqueueNoteIndex } from '../mcp/ai-search'
+import { enqueueNoteIndex, noteIndexQueueStatement } from '../mcp/ai-search'
 
 export const notesRoutes = new Hono<AppBindings>()
 
@@ -1002,6 +1002,7 @@ async function rewriteInboundWikiLinks(
         expectedTitle: note.title,
         expectedUpdatedAt: now,
       }).statements)
+      statements.push(noteIndexQueueStatement(db, userId, note.id, 'embed', now))
       statements.push(
         db.prepare(
           `INSERT INTO changes (user_id, entity, entity_id, op, at)

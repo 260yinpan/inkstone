@@ -842,6 +842,13 @@ export function createDemoBackend(): DemoBackend {
   app.get('/api/export', (c) => exportResponse(state, c.req.query('format') === 'json' ? 'json' : 'zip'))
   app.post('/api/import', async (c) => {
     const form = await c.req.raw.formData()
+    const files = form.getAll('file').filter((value): value is File => value instanceof File)
+    if (files.length > LIMITS.importFilesMax) {
+      return apiError(413, 'payload_too_large', `The import cannot contain more than ${LIMITS.importFilesMax} files`)
+    }
+    if (files.reduce((total, file) => total + file.size, 0) > LIMITS.importUploadMaxBytes) {
+      return apiError(413, 'payload_too_large', 'The import upload cannot exceed 64 MB')
+    }
     const result: ImportResult = {
       createdNotes: 0,
       updatedNotes: 0,
@@ -851,8 +858,7 @@ export function createDemoBackend(): DemoBackend {
       skippedAttachments: 0,
       warnings: [],
     }
-    for (const value of form.getAll('file')) {
-      if (!(value instanceof File)) continue
+    for (const value of files) {
       try {
         if (value.name.toLowerCase().endsWith('.zip')) {
           const entries = await readZip(new Uint8Array(await value.arrayBuffer()), {
@@ -869,8 +875,14 @@ export function createDemoBackend(): DemoBackend {
             new Map(entries.map((entry) => [entry.path.toLocaleLowerCase(), entry.data])),
           )
         } else if (value.name.toLowerCase().endsWith('.json')) {
+          if (value.size > LIMITS.importBundleMaxBytes) {
+            throw new Error('The export file cannot exceed 32 MB')
+          }
           await importBundle(state, JSON.parse(await value.text()), result)
         } else {
+          if (value.size > LIMITS.contentMaxBytes) {
+            throw new Error('A note file cannot exceed 2 MB')
+          }
           const content = await value.text()
           createImportedNote(state, content, deriveTitle(content), null)
           result.createdNotes++

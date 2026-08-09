@@ -1052,6 +1052,10 @@ function attachmentReferenceCounts(state: DemoState): Map<string, number> {
       if (!state.attachments.has(id)) continue
       references.set(id, (references.get(id) ?? 0) + 1)
     }
+    for (const attachment of state.attachments.values()) {
+      if (!note.content.includes(attachment.meta.url)) continue
+      references.set(attachment.meta.id, (references.get(attachment.meta.id) ?? 0) + 1)
+    }
   }
   return references
 }

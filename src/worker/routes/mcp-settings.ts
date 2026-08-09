@@ -8,6 +8,8 @@ import {
   drainAiIndexQueue,
   enqueueAllNotesForIndex,
   getAiSearchStatus,
+  isAiSearchAvailable,
+  isAiSearchEnabled,
   setAiSearchEnabled,
 } from '../mcp/ai-search'
 import {
@@ -107,6 +109,10 @@ mcpSettingsRoutes.put('/ai-search', async (c) => {
   const userId = c.get('userId')
   const body = await readJson<{ enabled?: unknown }>(c, JSON_BODY_LIMITS.small)
   if (typeof body.enabled !== 'boolean') throw ApiError.badRequest('enabled must be a boolean')
+  if (body.enabled && !await isMcpEnabled(c.env.DB)) throw ApiError.conflict('MCP is disabled')
+  if (body.enabled && !isAiSearchAvailable(c.env)) {
+    throw ApiError.conflict('Workers AI is not configured')
+  }
   await setAiSearchEnabled(c.env.DB, userId, body.enabled)
   if (body.enabled) {
     const enqueued = await enqueueAllNotesForIndex(c.env.DB, userId)
@@ -119,6 +125,9 @@ mcpSettingsRoutes.put('/ai-search', async (c) => {
 
 mcpSettingsRoutes.post('/ai-search/reindex', async (c) => {
   const userId = c.get('userId')
+  if (!await isMcpEnabled(c.env.DB)) throw ApiError.conflict('MCP is disabled')
+  if (!isAiSearchAvailable(c.env)) throw ApiError.conflict('Workers AI is not configured')
+  if (!await isAiSearchEnabled(c.env.DB, userId)) throw ApiError.conflict('AI search is disabled')
   const enqueued = await enqueueAllNotesForIndex(c.env.DB, userId)
   const status = await getAiSearchStatus(c.env.DB, c.env, userId)
   c.executionCtx.waitUntil(drainAiIndexQueue(c.env, 30).catch(() => {}))

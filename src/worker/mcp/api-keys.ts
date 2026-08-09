@@ -117,10 +117,16 @@ export async function revokeMcpApiKey(
 export async function purgeRevokedMcpApiKeys(
   db: D1Database,
   maxAgeMs = REVOKED_KEY_RETENTION_MS,
+  limit = 500,
 ): Promise<void> {
+  const capped = Math.max(1, Math.min(1_000, Math.trunc(limit)))
   await db.prepare(
-    `DELETE FROM mcp_api_keys WHERE revoked_at IS NOT NULL AND revoked_at < ?1`,
-  ).bind(Date.now() - maxAgeMs).run()
+    `DELETE FROM mcp_api_keys WHERE rowid IN (
+       SELECT rowid FROM mcp_api_keys
+        WHERE revoked_at IS NOT NULL AND revoked_at < ?1
+        ORDER BY revoked_at, rowid LIMIT ?2
+     )`,
+  ).bind(Date.now() - maxAgeMs, capped).run()
 }
 
 /**

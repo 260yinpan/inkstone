@@ -441,12 +441,17 @@ notesRoutes.patch('/:id', async (c) => {
   const changeResult = results.at(-1) as D1Result<{ seq: number }> | undefined
   let rewroteInbound = false
   if (newTitle !== row.title) {
-    const duplicate = await c.env.DB.prepare(
+    const ambiguous = await c.env.DB.prepare(
       `SELECT 1 AS found FROM notes
-        WHERE user_id = ?1 AND id <> ?2 AND deleted_at IS NULL AND title_key = ?3
+        WHERE user_id = ?1 AND id <> ?2 AND deleted_at IS NULL AND title_key IN (?3, ?4)
         LIMIT 1`,
-    ).bind(userId, id, normalizeLinkKey(newTitle)).first<{ found: number }>()
-    if (!duplicate) {
+    ).bind(
+      userId,
+      id,
+      normalizeLinkKey(row.title),
+      normalizeLinkKey(newTitle),
+    ).first<{ found: number }>()
+    if (!ambiguous) {
       const rewrite = await rewriteInboundWikiLinks(
         c.env.DB,
         userId,
@@ -459,6 +464,21 @@ notesRoutes.patch('/:id', async (c) => {
         console.warn(`Could not update ${rewrite.skipped} wiki-link source notes after renaming note ${id}`)
       }
       rewroteInbound = rewrite.rewritten > 0
+    } else {
+      await c.env.DB.prepare(
+        `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
+          WHERE user_id = ?1 AND target_key = ?2
+            AND EXISTS (SELECT 1 FROM notes
+              WHERE id = ?3 AND user_id = ?1 AND rev = ?4
+                AND title = ?5 AND updated_at = ?6 AND deleted_at IS NULL)`,
+      ).bind(
+        userId,
+        normalizeLinkKey(row.title),
+        id,
+        nextRev,
+        newTitle,
+        now,
+      ).run()
     }
   }
   await broadcastCursor(c, rewroteInbound ? undefined : changeResult?.results?.[0]?.seq)

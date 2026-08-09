@@ -39,6 +39,18 @@ interface AttachmentRow {
   created_at: number
 }
 
+const ATTACHMENT_LIST_PAGE_SIZE = 500
+
+function parseAttachmentListCursor(value: string | undefined): { createdAt: number; id: string } | null {
+  if (!value) return null
+  const match = /^(\d{1,16})\.([0-9a-hjkmnp-tv-z]{26})$/.exec(value)
+  const createdAt = Number(match?.[1])
+  if (!match || !Number.isSafeInteger(createdAt) || createdAt < 0) {
+    throw ApiError.badRequest('Invalid attachment cursor')
+  }
+  return { createdAt, id: match[2]! }
+}
+
 function toAttachment(row: AttachmentRow): Attachment {
   return {
     id: row.id,
@@ -200,12 +212,22 @@ filesRoutes.get('/:id', async (c) => {
 
 filesRoutes.get('/', requireAuth, async (c) => {
   const userId = c.get('userId')
-  const { results } = await c.env.DB.prepare(
-    `SELECT id, user_id, note_id, filename, mime, size, width, height, storage, created_at
-       FROM attachments WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 500`,
-  )
-    .bind(userId)
-    .all<AttachmentRow>()
+  const cursor = parseAttachmentListCursor(c.req.query('cursor'))
+  const statement = cursor
+    ? c.env.DB.prepare(
+        `SELECT id, user_id, note_id, filename, mime, size, width, height, storage, created_at
+           FROM attachments WHERE user_id = ?1
+            AND (created_at < ?2 OR (created_at = ?2 AND id < ?3))
+          ORDER BY created_at DESC, id DESC LIMIT ?4`,
+      ).bind(userId, cursor.createdAt, cursor.id, ATTACHMENT_LIST_PAGE_SIZE + 1)
+    : c.env.DB.prepare(
+        `SELECT id, user_id, note_id, filename, mime, size, width, height, storage, created_at
+           FROM attachments WHERE user_id = ?1
+          ORDER BY created_at DESC, id DESC LIMIT ?2`,
+      ).bind(userId, ATTACHMENT_LIST_PAGE_SIZE + 1)
+  const { results } = await statement.all<AttachmentRow>()
+  const page = results.slice(0, ATTACHMENT_LIST_PAGE_SIZE)
+  const hasMore = results.length > ATTACHMENT_LIST_PAGE_SIZE
   const { results: notes } = await c.env.DB.prepare(
     `SELECT content FROM notes WHERE user_id = ?1`,
   )
@@ -218,10 +240,13 @@ filesRoutes.get('/', requireAuth, async (c) => {
     }
   }
   return c.json({
-    files: results.map((row) => ({
+    files: page.map((row) => ({
       ...toAttachment(row),
       references: references.get(row.id) ?? 0,
     })),
+    nextCursor: hasMore
+      ? `${page[page.length - 1]!.created_at}.${page[page.length - 1]!.id}`
+      : null,
   })
 })
 

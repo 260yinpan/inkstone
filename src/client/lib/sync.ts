@@ -231,9 +231,8 @@ export class SyncEngine {
 
   private scheduleReconnect(): void {
     this.failures += 1
-
-    if (this.failures > 6) return
-    const delay = Math.min(MAX_BACKOFF_MS, 800 * 2 ** (this.failures - 1))
+    const exponent = Math.min(this.failures - 1, 16)
+    const delay = Math.min(MAX_BACKOFF_MS, 800 * 2 ** exponent)
     window.clearTimeout(this.reconnectTimer)
     this.reconnectTimer = window.setTimeout(() => this.connect(), delay)
   }

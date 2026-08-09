@@ -276,6 +276,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     created_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, note_id)
   )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_index_queue_due
+     ON ai_index_queue(user_id, created_at, note_id)`,
 
   `CREATE TABLE IF NOT EXISTS fts_index_queue (
     user_id TEXT NOT NULL,
@@ -400,6 +402,13 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE INDEX IF NOT EXISTS idx_attachments_user_sha ON attachments(user_id, sha256)`,
     ],
   },
+  {
+    version: 8,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_ai_index_queue_due
+         ON ai_index_queue(user_id, created_at, note_id)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -505,6 +514,7 @@ const REQUIRED_INDEXES = [
   'idx_mcp_operations_created',
   'idx_mcp_api_keys_user',
   'idx_ai_embeddings_indexed',
+  'idx_ai_index_queue_due',
   'idx_fts_index_queue_due',
 ] as const
 

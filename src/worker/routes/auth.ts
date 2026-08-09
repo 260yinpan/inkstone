@@ -121,11 +121,17 @@ async function sessionInfo(env: Env, user: Variables['user']): Promise<SessionIn
 }
 
 async function rotateSession(c: Context<AppBindings>, userId: string): Promise<string> {
-  const previous = sessionCookieNames(c.req.url)
-    .map((name) => getCookie(c, name))
-    .find(Boolean)
-  if (previous) await destroySession(c.env.DB, previous)
+  await destroyPresentedSessions(c)
   return createSession(c.env.DB, userId)
+}
+
+async function destroyPresentedSessions(c: Context<AppBindings>): Promise<void> {
+  const tokens = new Set(
+    sessionCookieNames(c.req.url)
+      .map((name) => getCookie(c, name))
+      .filter((token): token is string => Boolean(token)),
+  )
+  await Promise.all([...tokens].map((token) => destroySession(c.env.DB, token)))
 }
 
 authRoutes.get('/session', async (c) => {
@@ -393,10 +399,7 @@ authRoutes.post('/password', async (c) => {
 })
 
 authRoutes.post('/logout', async (c) => {
-  const token = sessionCookieNames(c.req.url)
-    .map((name) => getCookie(c, name))
-    .find(Boolean)
-  if (token) await destroySession(c.env.DB, token)
+  await destroyPresentedSessions(c)
   clearSessionCookie(c)
   return c.json({ ok: true })
 })

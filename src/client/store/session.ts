@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { DEFAULT_SETTINGS, mergeSettings, mergeSettingsPatch } from '@shared/constants'
-import type { PublicUser, SessionInfo, SiteInfo, UserSettings } from '@shared/types'
+import type { PublicUser, SessionInfo, SiteInfo, TotpLoginChallenge, UserSettings } from '@shared/types'
 import { api, ApiError } from '../lib/api'
 import { setLocale, t } from '../lib/i18n'
 import { localDb } from '../lib/db'
@@ -14,7 +14,8 @@ interface SessionState {
   authError: string | null
 
   load: () => Promise<void>
-  passwordLogin: (username: string, password: string) => Promise<void>
+  passwordLogin: (username: string, password: string) => Promise<TotpLoginChallenge | null>
+  totpLogin: (challengeToken: string, code: string) => Promise<void>
   passwordRegister: (username: string, password: string) => Promise<void>
   refresh: () => Promise<void>
   refreshSettings: () => Promise<void>
@@ -77,11 +78,32 @@ export const useSession = create<SessionState>((set, get) => ({
 
   async passwordLogin(username, password) {
     const sequence = ++sessionRequestSequence
-    const info = await api.auth.login(username, password)
+    const result = await api.auth.login(username, password)
+    if (sequence !== sessionRequestSequence) return null
+    if ('twoFactorRequired' in result) return result
+    const info = result
+    await persistSession(info)
+    if (sequence !== sessionRequestSequence) return null
+    adopt(info, set)
+    return null
+  },
+
+  async totpLogin(challengeToken, code) {
+    const sequence = ++sessionRequestSequence
+    const info = await api.auth.totp.completeLogin(challengeToken, code)
     if (sequence !== sessionRequestSequence) return
     await persistSession(info)
     if (sequence !== sessionRequestSequence) return
     adopt(info, set)
+    if (info.recoveryCodeUsed) {
+      useUi.getState().toast({
+        title: t('auth.recovery_code_used'),
+        description: t('auth.recovery_codes_remaining', {
+          count: info.recoveryCodesRemaining ?? 0,
+        }),
+        tone: info.recoveryCodesRemaining && info.recoveryCodesRemaining > 2 ? 'success' : 'danger',
+      })
+    }
   },
 
   async passwordRegister(username, password) {

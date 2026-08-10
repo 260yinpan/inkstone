@@ -10,6 +10,7 @@ import { t } from '../../lib/i18n'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { AvatarPicker } from './AvatarPicker'
+import { TotpSettings } from './TotpSettings'
 
 export function AccountSettings() {
   const user = useSession((state) => state.user)
@@ -23,7 +24,10 @@ export function AccountSettings() {
         <h3 className="mb-2 px-1 text-[12px] font-semibold text-[var(--text-secondary)]">
           {t("settings.sign_in_security")}
         </h3>
-        <PasswordSection />
+        <div className="space-y-2">
+          <PasswordSection />
+          <TotpSettings />
+        </div>
       </section>
 
       {user.role === 'owner' && (

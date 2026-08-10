@@ -20,6 +20,7 @@ import type {
   NoteVersion,
   NoteVersionMeta,
   PatchNoteBody,
+  PasswordLoginResult,
   PublicUser,
   PublicNote,
   SearchResponse,
@@ -28,6 +29,10 @@ import type {
   SyncResponse,
   Tag,
   TestConnectionResult,
+  TotpRecoveryCodesResult,
+  TotpLoginResult,
+  TotpSetupInfo,
+  TotpStatus,
   UpdateCheckResponse,
   UserSettings,
 } from '@shared/types'
@@ -270,7 +275,40 @@ export const api = {
         body: { username, password, locale },
       }),
     login: (username: string, password: string) =>
-      request<SessionInfo>('/api/auth/login', { method: 'POST', body: { username, password } }),
+      request<PasswordLoginResult>('/api/auth/login', { method: 'POST', body: { username, password } }),
+    totp: {
+      status: () => request<TotpStatus>('/api/auth/totp/status'),
+      startSetup: (currentPassword: string) =>
+        request<TotpSetupInfo>('/api/auth/totp/setup', {
+          method: 'POST',
+          body: { currentPassword },
+        }),
+      confirmSetup: (setupToken: string, code: string) =>
+        request<TotpRecoveryCodesResult & { enabledAt: number }>('/api/auth/totp/setup/confirm', {
+          method: 'POST',
+          body: { setupToken, code },
+        }),
+      cancelSetup: (setupToken: string) =>
+        request<{ ok: true }>('/api/auth/totp/setup', {
+          method: 'DELETE',
+          body: { setupToken },
+        }),
+      completeLogin: (challengeToken: string, code: string) =>
+        request<TotpLoginResult>('/api/auth/totp/login', {
+          method: 'POST',
+          body: { challengeToken, code },
+        }),
+      regenerateRecoveryCodes: (currentPassword: string, code: string) =>
+        request<TotpRecoveryCodesResult>('/api/auth/totp/recovery-codes', {
+          method: 'POST',
+          body: { currentPassword, code },
+        }),
+      disable: (currentPassword: string, code: string) =>
+        request<{ ok: true }>('/api/auth/totp', {
+          method: 'DELETE',
+          body: { currentPassword, code },
+        }),
+    },
     setPassword: (body: {
       currentPassword: string
       newPassword: string

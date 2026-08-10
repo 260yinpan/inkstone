@@ -83,6 +83,12 @@ export function createDemoBackend(): DemoBackend {
     state.authenticated = false
     return c.json({ ok: true as const })
   })
+  app.get('/api/auth/totp/status', (c) => c.json({
+    available: false,
+    enabled: false,
+    enabledAt: null,
+    recoveryCodesRemaining: 0,
+  }))
   app.post('/api/auth/password', async (c) => {
     const body = await jsonBody(c.req.raw)
     if (body.currentPassword !== state.password) {

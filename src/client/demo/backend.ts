@@ -906,11 +906,15 @@ export function createDemoBackend(): DemoBackend {
   })
   app.post('/api/backup/run', async (c) => {
     const body = await jsonBody(c.req.raw)
-    if (Array.isArray(body.targetIds) && body.targetIds.length > LIMITS.backupTargetsMax) {
-      return apiError(400, 'bad_request', `Select at most ${LIMITS.backupTargetsMax} backup targets`)
+    if (
+      body.targetIds !== undefined &&
+      (!Array.isArray(body.targetIds) ||
+        body.targetIds.some((id) => typeof id !== 'string' || !/^[0-9a-hjkmnp-tv-z]{26}$/.test(id)))
+    ) {
+      return apiError(400, 'bad_request', 'targetIds must be an array of valid backup target IDs')
     }
     const selected = Array.isArray(body.targetIds)
-      ? body.targetIds.filter((id): id is string => typeof id === 'string')
+      ? body.targetIds as string[]
       : [...state.backupTargets.keys()]
     const targets = [...new Set(selected)]
       .map((id) => state.backupTargets.get(id))

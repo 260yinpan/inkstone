@@ -898,11 +898,31 @@ export function createDemoBackend(): DemoBackend {
     }
     return c.json({ ok: true as const })
   })
-  app.post('/api/backup/test', (c) => c.json({ ok: true, message: 'Demo connection succeeded', latencyMs: 24 }))
-  app.post('/api/backup/targets/:id/test', (c) => {
-    return state.backupTargets.has(c.req.param('id'))
-      ? c.json({ ok: true, message: 'Demo connection succeeded', latencyMs: 18 })
-      : apiError(404, 'not_found', 'Backup target not found')
+  app.post('/api/backup/test', async (c) => {
+    const input = await jsonBody(c.req.raw) as unknown as BackupTargetInput
+    const invalid = demoBackupTargetError(input, true)
+    return invalid
+      ? apiError(400, 'bad_request', invalid)
+      : c.json({ ok: true, message: 'Demo connection succeeded', latencyMs: 24 })
+  })
+  app.post('/api/backup/targets/:id/test', async (c) => {
+    const current = state.backupTargets.get(c.req.param('id'))
+    if (!current) return apiError(404, 'not_found', 'Backup target not found')
+    const input = await jsonBody(c.req.raw) as unknown as BackupTargetPatchInput
+    const changedType = input.type !== undefined && input.type !== current.type
+    const mergedInput: BackupTargetInput = {
+      type: input.type ?? current.type,
+      name: input.name ?? current.name,
+      enabled: input.enabled ?? current.enabled,
+      config: input.config
+        ? ({ ...current.config, ...input.config } as BackupTargetConfig)
+        : current.config,
+      secret: input.secret,
+    }
+    const invalid = demoBackupTargetError(mergedInput, changedType || !current.hasSecret)
+    return invalid
+      ? apiError(400, 'bad_request', invalid)
+      : c.json({ ok: true, message: 'Demo connection succeeded', latencyMs: 18 })
   })
   app.post('/api/backup/run', async (c) => {
     const body = await jsonBody(c.req.raw)

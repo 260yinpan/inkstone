@@ -774,8 +774,19 @@ export function createDemoBackend(): DemoBackend {
   })
   app.post('/api/share/:noteId', async (c) => {
     const noteId = c.req.param('noteId')
-    if (!state.notes.has(noteId)) return apiError(404, 'not_found', 'Note not found')
+    const note = state.notes.get(noteId)
+    if (!note || note.deletedAt !== null) return apiError(404, 'not_found', 'Note not found')
     const body = await jsonBody(c.req.raw)
+    if (body.password !== undefined && body.password !== null && typeof body.password !== 'string') {
+      return apiError(400, 'bad_request', 'password must be a string or null')
+    }
+    if (
+      body.expiresIn !== undefined &&
+      body.expiresIn !== null &&
+      (typeof body.expiresIn !== 'number' || !Number.isFinite(body.expiresIn) || body.expiresIn < 0)
+    ) {
+      return apiError(400, 'bad_request', 'expiresIn must be a non-negative number or null')
+    }
     const existing = state.shares.get(noteId)
     let expiresAt = existing?.info.expiresAt ?? null
     if (body.expiresIn !== undefined) {
@@ -818,7 +829,7 @@ export function createDemoBackend(): DemoBackend {
       return apiError(401, 'unauthenticated', 'Enter the share password')
     }
     const note = state.notes.get(share.info.noteId)
-    if (!note) return apiError(404, 'not_found', 'Shared note not found')
+    if (!note || note.deletedAt !== null) return apiError(404, 'not_found', 'Shared note not found')
     share.info = { ...share.info, views: share.info.views + 1 }
     const response: PublicNote = {
       title: note.title,

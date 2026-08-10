@@ -16,6 +16,8 @@ import { requireAuth } from '../middleware/auth'
 
 export const searchRoutes = new Hono<AppBindings>()
 
+const GRAPH_EDGE_CANDIDATE_LIMIT = 10_000
+
 
 export interface ParsedQuery {
   text: string
@@ -499,8 +501,8 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
         `SELECT source_note_id, target_note_id, target_key, target_title FROM links
          WHERE user_id = ? AND source_note_id IN (${placeholders})
            AND (target_note_id IN (${placeholders})${includeUnresolved ? ' OR target_note_id IS NULL' : ''})
-         ORDER BY source_note_id ASC, target_key ASC`,
-      ).bind(userId, ...ids, ...ids).all<{
+         ORDER BY source_note_id ASC, target_key ASC LIMIT ?`,
+      ).bind(userId, ...ids, ...ids, GRAPH_EDGE_CANDIDATE_LIMIT + 1).all<{
         source_note_id: string
         target_note_id: string | null
         target_key: string
@@ -512,8 +514,9 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
          WHERE nt.note_id IN (${placeholders}) ORDER BY t.name COLLATE NOCASE ASC`,
       ).bind(userId, ...ids).all<{ note_id: string; name: string; color: string | null }>(),
     ])
+    if (linkResult.results.length > GRAPH_EDGE_CANDIDATE_LIMIT) truncated = true
     const seen = new Set<string>()
-    for (const link of linkResult.results) {
+    for (const link of linkResult.results.slice(0, GRAPH_EDGE_CANDIDATE_LIMIT)) {
       if (link.target_note_id === null) {
         if (!includeUnresolved || unresolved.size >= 50 && !unresolved.has(link.target_key)) continue
         const current = unresolved.get(link.target_key) ?? {

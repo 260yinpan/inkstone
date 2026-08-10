@@ -625,17 +625,17 @@ function clientSnippets(info: McpSettingsInfo): Array<{ id: string; name: string
     {
       id: 'codex',
       name: 'Codex',
-      value: `codex mcp add inkstone --url "${endpoint}" --oauth-resource "${endpoint}"`,
+      value: `codex mcp add inkstone --url "${endpoint}"`,
     },
     {
       id: 'claude-code',
       name: 'Claude Code',
-      value: `claude mcp add-json inkstone '${claudeJson}' --scope user\n/mcp`,
+      value: `claude mcp add-json inkstone '${claudeJson}' --scope user\nclaude mcp login inkstone`,
     },
     {
       id: 'hermes',
       name: 'Hermes Agent',
-      value: `mcp_servers:\n  inkstone:\n    url: "${endpoint}"\n    auth: oauth\n    oauth:\n      scope: "${scopeText}"\n\nhermes mcp login inkstone`,
+      value: `hermes mcp add inkstone --url "${endpoint}" --auth oauth\nhermes mcp login inkstone`,
     },
     {
       id: 'openclaw',

@@ -147,7 +147,7 @@ async function parseAuthorization(
     redirect.searchParams.set('error', error.code)
     redirect.searchParams.set('error_description', error.description)
     if (error.state) redirect.searchParams.set('state', error.state)
-    redirect.searchParams.set('issuer', error.issuer ?? new URL(request.url).origin)
+    redirect.searchParams.set('iss', error.issuer ?? new URL(request.url).origin)
     return Response.redirect(redirect.toString(), 302)
   }
 }
@@ -158,11 +158,11 @@ function authorizationIssuer(request: Request, parsed: AuthRequest): string {
 
 function authorizationResponseRedirect(redirectTo: string, issuer: string): string {
   const redirect = new URL(redirectTo)
-  const returnedIssuer = redirect.searchParams.get('issuer')
+  const returnedIssuer = redirect.searchParams.get('iss')
   if (returnedIssuer && returnedIssuer !== issuer) {
     throw new Error('OAuth provider returned a mismatched authorization issuer')
   }
-  redirect.searchParams.set('issuer', issuer)
+  redirect.searchParams.set('iss', issuer)
   return redirect.toString()
 }
 
@@ -176,7 +176,7 @@ function oauthErrorRedirect(
   redirect.searchParams.set('error', code)
   redirect.searchParams.set('error_description', description)
   if (request.state) redirect.searchParams.set('state', request.state)
-  redirect.searchParams.set('issuer', issuer)
+  redirect.searchParams.set('iss', issuer)
   return redirect.toString()
 }
 

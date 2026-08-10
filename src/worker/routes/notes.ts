@@ -226,10 +226,12 @@ notesRoutes.post('/trash/empty', async (c) => {
         .prepare(
           `INSERT INTO changes (user_id, entity, entity_id, op, at)
            SELECT ?1, 'note', id, 'delete', ?2
-             FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL
-           RETURNING seq`,
+             FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`,
         )
         .bind(userId, Date.now()),
+      c.env.DB
+        .prepare(`SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT 1`)
+        .bind(userId),
       c.env.DB
         .prepare(`DELETE FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`)
         .bind(userId),

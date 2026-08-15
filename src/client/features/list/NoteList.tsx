@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Archive, ArrowDownWideNarrow, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, MoreHorizontal, Pin, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, } from 'lucide-react';
 import type { NoteSummary, SortKey, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
@@ -50,6 +50,7 @@ export function NoteList() {
     const openNote = useNotes((s) => s.openNote);
     const { emptyTrash, emptyingTrash } = useEmptyTrash();
     const [filter, setFilter] = useState('');
+    const deferredFilter = useDeferredValue(filter);
     const [sortMenuOpen, setSortMenuOpen] = useState(false);
     const sortButtonRef = useRef<HTMLButtonElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
@@ -65,13 +66,13 @@ export function NoteList() {
         return t(VIEW_MESSAGE_KEYS[view]);
     }, [view, folderId, tag, folders, locale]);
     const filtered = useMemo(() => {
-        if (!filter.trim())
+        if (!deferredFilter.trim())
             return notes.map((note) => ({ note, ranges: EMPTY_HIGHLIGHT }));
-        return fuzzyFilter(notes, filter, (n) => `${n.title} ${n.excerpt}`, 200).map(({ item, match }) => ({
+        return fuzzyFilter(notes, deferredFilter, (n) => `${n.title} ${n.excerpt}`, 200).map(({ item, match }) => ({
             note: item,
             ranges: match.ranges.filter(([s]) => s < item.title.length),
         }));
-    }, [notes, filter]);
+    }, [notes, deferredFilter]);
     const filteredIds = useMemo(() => filtered.map((item) => item.note.id), [filtered]);
     const filteredIdsRef = useRef(filteredIds);
     filteredIdsRef.current = filteredIds;

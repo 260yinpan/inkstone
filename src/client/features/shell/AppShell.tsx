@@ -5,6 +5,7 @@ import { registerAll } from '../../lib/hotkeys';
 import { useBreakpoint } from '../../lib/hooks';
 import { useSyncEngine } from '../../lib/sync';
 import { Drawer } from '../../components/overlay';
+import { InlineErrorBoundary } from '../../components/ErrorBoundary';
 import { PANEL_WIDTHS, useUi } from '../../store/ui';
 import { createContextualNote, useNotes } from '../../store/notes';
 import { useSession } from '../../store/session';
@@ -95,14 +96,14 @@ export function AppShell() {
         <main ref={workspaceGroupsRef} className="flex min-w-0 flex-1">
           {showWorkspaceSplit ? (<>
               <div className="min-w-0" style={{ width: `${effectiveWorkspaceSplitRatio * 100}%` }}>
-                <Workspace pane="primary" grouped/>
+                <InlineErrorBoundary><Workspace pane="primary" grouped/></InlineErrorBoundary>
               </div>
               <SplitResizer label={t("shell.resize_note_panes")} containerRef={workspaceGroupsRef} ratio={effectiveWorkspaceSplitRatio} onChange={(workspaceSplitRatio) => setLayout({ workspaceSplitRatio })} onReset={() => setLayout({ workspaceSplitRatio: null })}/>
               <div className="anim-view-content min-w-0 flex-1">
-                <Workspace pane="secondary" grouped/>
+                <InlineErrorBoundary><Workspace pane="secondary" grouped/></InlineErrorBoundary>
               </div>
             </>) : (<div className="min-w-0 flex-1">
-                <Workspace />
+                <InlineErrorBoundary><Workspace /></InlineErrorBoundary>
               </div>)}
         </main>
       </div>
